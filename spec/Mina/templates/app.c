@@ -13,7 +13,7 @@
 
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 @{SCHEMA_CHECK}
-static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert;
+static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
 static i64 started_at;
 
 static void app_init(void) {
@@ -24,10 +24,12 @@ static void app_init(void) {
    * same number. */
   Q_event_insert = db_prepare(
       "INSERT INTO events (seq, eid, region, vis, kind, incident, category, status, actor, ts, at, lat, lon, body) "
-      "SELECT s, ?1, ?2, ?3, ?4, CASE WHEN ?4 = 1 THEN s ELSE ?5 END, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 "
+      "SELECT s, ?1, ?2, ?3, ?4, CASE WHEN ?4 = @{KIND_SOS} THEN s ELSE ?5 END, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 "
       "FROM (SELECT coalesce(max(seq), 0) + 1 AS s FROM events) WHERE true RETURNING seq, incident");
   Q_incident_insert = db_prepare(
       "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)");
+  Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = ?1");
+  Q_incident_update = db_prepare("UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1");
   started_at = time(0);
 }
 
@@ -250,10 +252,37 @@ static void stored_response(job_t *j, i64 seq, i64 incident, int duplicate) {
   }
 }
 
+/* An update about an incident takes its region and category from the incident and must be a
+ * permitted transition (Mina.Domain.transitions). Responders see only their regions. Returns 0
+ * if the response has been decided. */
+static int apply_transition(job_t *j, event_t *ev) {
+  sqlite3_bind_int64(Q_incident_state, 1, ev->incident);
+  int rc = sqlite3_step(Q_incident_state);
+  i64 region = 0, category = 0, status = 0;
+  if (rc == SQLITE_ROW) {
+    region = sqlite3_column_int64(Q_incident_state, 0);
+    category = sqlite3_column_int64(Q_incident_state, 1);
+    status = sqlite3_column_int64(Q_incident_state, 2);
+  }
+  sqlite3_reset(Q_incident_state);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) { batch_failed = 1; return 0; }
+  if (rc == SQLITE_DONE || !in_region(&ev->who, region)) { j->resp = ERR(NO_INCIDENT); return 0; }
+  i64 target = KIND_SPECS[ev->kind].target ? KIND_SPECS[ev->kind].target : ev->status;
+  if (status < STATUS_OPEN || status > STATUS_RESOLVED || !(TRANSITIONS[ev->kind][status] >> target & 1)) {
+    j->resp = ERR(BAD_TRANSITION);
+    return 0;
+  }
+  ev->region = region;
+  ev->category = category;
+  ev->status = target;
+  ev->has |= F_REGION | F_CATEGORY | F_STATUS;
+  return 1;
+}
+
 /* One submission, inside the batch transaction. A known event id is answered with what was
  * stored for it and changes nothing. */
 static void exec_event(job_t *j) {
-  const event_t *ev = j->data;
+  event_t *ev = j->data;
   sqlite3_bind_blob(Q_by_eid, 1, ev->eid, 16, SQLITE_STATIC);
   int rc = sqlite3_step(Q_by_eid);
   if (rc == SQLITE_ROW) {
@@ -266,6 +295,8 @@ static void exec_event(job_t *j) {
   }
   sqlite3_reset(Q_by_eid);
   if (rc != SQLITE_DONE) { batch_failed = 1; return; }
+  int updates_incident = (KIND_SPECS[ev->kind].need & F_INCIDENT) != 0;
+  if (updates_incident && !apply_transition(j, ev)) return;
 
   sqlite3_stmt *s = Q_event_insert;
   sqlite3_bind_blob(s, 1, ev->eid, 16, SQLITE_STATIC);
@@ -294,6 +325,12 @@ static void exec_event(job_t *j) {
     sqlite3_bind_int64(s, 3, ev->region);
     sqlite3_bind_int64(s, 4, ev->category);
     sqlite3_bind_int(s, 5, STATUS_OPEN);
+    if (step_reset(s) != SQLITE_DONE) { batch_failed = 1; return; }
+  } else if (updates_incident) {
+    s = Q_incident_update;
+    sqlite3_bind_int64(s, 1, ev->incident);
+    sqlite3_bind_int64(s, 2, ev->status);
+    sqlite3_bind_int64(s, 3, seq);
     if (step_reset(s) != SQLITE_DONE) { batch_failed = 1; return; }
   }
   stored_response(j, seq, incident, 0);

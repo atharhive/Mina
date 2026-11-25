@@ -26,10 +26,23 @@ def emitKindSpecs : String :=
     let (lo, hi) := k.statusRange
     s!"  [{k.code}] = \{.roles = {bitmask (k.roles.map Role.code)}, " ++
     s!".restricted = {if k.restricted then 1 else 0}, .need = {bitmask (k.required.map fieldBit)}, " ++
-    s!".allow = {bitmask ((k.required ++ k.optional).map fieldBit)}, .status_lo = {lo}, .status_hi = {hi}},  /* {k.name} */"
-  "typedef struct { u8 roles, restricted, need, allow, status_lo, status_hi; } kind_spec;\n" ++
+    s!".allow = {bitmask ((k.required ++ k.optional).map fieldBit)}, .status_lo = {lo}, .status_hi = {hi}, " ++
+    s!".target = {(k.fixedStatus.map (·.code)).getD 0}},  /* {k.name} */"
+  "typedef struct { u8 roles, restricted, need, allow, status_lo, status_hi, target; } kind_spec;\n" ++
   s!"#define KIND_COUNT {size}\n" ++
   "static const kind_spec KIND_SPECS[KIND_COUNT] = {\n" ++ "\n".intercalate (Kind.all.map row) ++ "\n};\n"
+
+/-- `TRANSITIONS[kind][source]`: the set of permitted target statuses, one bit per code. -/
+def emitTransitions : String :=
+  let size := (Domain.Status.all.map Domain.Status.code).foldl Nat.max 0 + 1
+  let row (k : Kind) : Option String :=
+    let cells := Domain.Status.all.filterMap fun s =>
+      let ts := (transitions.filter fun t => t.kind == k && t.source == s).map (·.target.code)
+      if ts.isEmpty then none else some s!"[{s.code}] = {bitmask ts}"
+    if cells.isEmpty then none
+    else some s!"  [{k.code}] = \{{", ".intercalate cells}},  /* {k.name} */"
+  s!"static const u8 TRANSITIONS[KIND_COUNT][{size}] = \{\n" ++
+  "\n".intercalate (Kind.all.filterMap row) ++ "\n};\n"
 
 def emitDomainHeader : String :=
   "/* GENERATED from spec/Mina/Domain.lean. Do not edit. */\n" ++
@@ -41,6 +54,6 @@ def emitDomainHeader : String :=
     [("CATEGORY_MAX", (Category.all.map Category.code).foldl Nat.max 0),
      ("MAX_REGION", maxRegion), ("MAX_LAT", maxLatitude), ("MAX_LON", maxLongitude), ("MAX_TIME", maxTime),
      ("MAX_BODY_CHARS", Schema.maxBodyChars), ("MIN_SECRET_BYTES", minSecretBytes)]) ++
-  "\n" ++ emitKindSpecs ++ "\n#endif\n"
+  "\n" ++ emitKindSpecs ++ emitTransitions ++ "\n#endif\n"
 
 end Mina.Codegen

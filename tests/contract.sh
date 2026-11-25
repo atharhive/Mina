@@ -158,6 +158,54 @@ seqs="$(for i in $(seq 20); do jq -r .seq "$TMP/dup$i"; done | sort -u | tr '\n'
 [ "$codes" = " 19 200 1 201 " ] && [ "$seqs" = "6 " ] && [ "$(sql 'SELECT count(*) FROM events WHERE seq > 5')" = 1 ] \
   && ok "20 concurrent copies commit one event" || bad "concurrent retries" "codes '$codes' seqs '$seqs'"
 
+echo "-- incident transitions"
+RESP9="$(token --sub 209 --role responder --regions 9)"
+n=1000
+act() { n=$((n+1)); LAST='{"eid":"'"$(eid $n)"'","kind":'"$2"',"incident":'"$3${4:+,\"status\":$4}"'}'; ev "$1" "$LAST"; }   # act <token> <kind> <incident> [status]
+act "$CIT" 2 1;          expect "citizens cannot acknowledge" 403 '{"error":"not permitted"}'
+act "$RESP9" 2 1;        expect "incidents outside the region are not disclosed" 404 '{"error":"no such incident"}'
+act "$RESP" 2 999;       expect "unknown incident" 404 '{"error":"no such incident"}'
+act "$RESP" 2 2;         expect "a safety report is not an incident" 404 '{"error":"no such incident"}'
+act "$RESP" 3 1 3;       expect "no progress before acknowledgement" 409 '{"error":"invalid transition"}'
+act "$RESP" 2 1;         expect "acknowledge" 201 '{"seq":7,"incident":1}'; ACK="$LAST"
+ev "$RESP" "$ACK";       expect "acknowledge retried" 200 '{"seq":7,"incident":1,"duplicate":true}'
+act "$RESP" 2 1;         expect "second acknowledgement" 409 '{"error":"invalid transition"}'
+[ "$(sql 'SELECT vis,kind,region,category,status,actor,body IS NULL AND lat IS NULL AND lon IS NULL FROM events WHERE seq=7')" = "0|2|1|1|2|200|1" ] \
+  && ok "the public update carries no text or location" || bad "public update row" "$(sql 'SELECT * FROM events WHERE seq=7')"
+[ "$(sql 'SELECT status,updated_seq FROM incidents WHERE id=1')" = "2|7" ] && ok "incident state follows" || bad "incident state"
+act "$RESP" 3 1 3;       expect "in progress" 201 '{"seq":8,"incident":1}'
+act "$RESP" 3 1 2;       expect "stood down to acknowledged" 201 '{"seq":9,"incident":1}'
+ev "$RESP" "$ACK";       expect "an old retry stays a duplicate" 200 '{"seq":7,"incident":1,"duplicate":true}'
+act "$RESP" 4 1;         expect "resolve" 201 '{"seq":10,"incident":1}'
+act "$RESP" 4 1;         expect "resolved is final" 409 '{"error":"invalid transition"}'
+act "$RESP" 3 1 3;       expect "no update after resolution" 409 '{"error":"invalid transition"}'
+rej '{"eid":"'"$E"'","kind":3,"incident":1,"status":4}' 'invalid status' "$RESP"
+rej '{"eid":"'"$E"'","kind":3,"incident":1}' 'missing or unexpected field' "$RESP"
+rej '{"eid":"'"$E"'","kind":2,"incident":1,"body":"x"}' 'missing or unexpected field' "$RESP"
+rej '{"eid":"'"$E"'","kind":2,"incident":1,"region":1}' 'missing or unexpected field' "$RESP"
+rej '{"eid":"'"$E"'","kind":4,"incident":0}' 'invalid incident' "$RESP"
+
+# every (state, action) pair against a table written independently of the server's
+declare -A ALLOWED=([1:ack]=1 [1:resolve]=1 [2:set3]=1 [2:resolve]=1 [3:set2]=1 [3:resolve]=1)
+wrong=
+for from in 1 2 3 4; do
+  for action in ack set2 set3 resolve; do
+    n=$((n+1)); ev "$CIT" '{"eid":"'"$(eid $n)"'","kind":1,"region":2,"category":3}'; inc="$(jq -r .incident <<<"$BODY")"
+    case $from in 2) act "$RESP" 2 "$inc" ;; 3) act "$RESP" 2 "$inc"; act "$RESP" 3 "$inc" 3 ;; 4) act "$RESP" 4 "$inc" ;; esac
+    case $action in ack) act "$RESP" 2 "$inc" ;; set2) act "$RESP" 3 "$inc" 2 ;; set3) act "$RESP" 3 "$inc" 3 ;; resolve) act "$RESP" 4 "$inc" ;; esac
+    want=409; [ -n "${ALLOWED[$from:$action]:-}" ] && want=201
+    [ "$STATUS" = $want ] || wrong+=" $from:$action=$STATUS"
+  done
+done
+[ -z "$wrong" ] && ok "all 16 state and action pairs" || bad "transition matrix" "$wrong"
+
+n=$((n+1)); ev "$CIT" '{"eid":"'"$(eid $n)"'","kind":1,"region":1,"category":4}'; inc="$(jq -r .incident <<<"$BODY")"
+pids=()
+for i in $(seq 10); do curl -s -m 5 -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $RESP" --data-binary '{"eid":"'"$(eid $((5000+i)))"'","kind":2,"incident":'"$inc"'}' "$BASE/v1/events" >"$TMP/code$i" & pids+=($!); done
+wait "${pids[@]}"
+codes="$(cat "$TMP"/code{1..10} | sort | uniq -c | tr -s ' \n' ' ')"
+[ "$codes" = " 1 201 9 409 " ] && ok "racing acknowledgements: one wins" || bad "racing acknowledgements" "$codes"
+
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3

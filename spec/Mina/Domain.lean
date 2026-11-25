@@ -48,36 +48,71 @@ def Field.name : Field → String
   | .region => "region" | .category => "category" | .status => "status" | .body => "body"
   | .location => "location" | .incident => "incident" | .at_ => "at"
 
-inductive Kind where | sosCreated | safetyReported | alertPublished
+inductive Kind where
+  | sosCreated | acknowledged | statusUpdated | resolved | safetyReported | alertPublished
   deriving Repr, DecidableEq
 
-def Kind.all : List Kind := [.sosCreated, .safetyReported, .alertPublished]
-def Kind.code : Kind → Nat | .sosCreated => 1 | .safetyReported => 5 | .alertPublished => 6
+def Kind.all : List Kind :=
+  [.sosCreated, .acknowledged, .statusUpdated, .resolved, .safetyReported, .alertPublished]
+def Kind.code : Kind → Nat
+  | .sosCreated => 1 | .acknowledged => 2 | .statusUpdated => 3 | .resolved => 4
+  | .safetyReported => 5 | .alertPublished => 6
 def Kind.name : Kind → String
-  | .sosCreated => "sos_created" | .safetyReported => "safety_reported" | .alertPublished => "alert_published"
+  | .sosCreated => "sos_created" | .acknowledged => "sos_acknowledged"
+  | .statusUpdated => "status_updated" | .resolved => "incident_resolved"
+  | .safetyReported => "safety_reported" | .alertPublished => "alert_published"
 
 def Kind.roles : Kind → List Role
   | .sosCreated | .safetyReported => [.citizen, .responder, .admin]
-  | .alertPublished => [.responder, .admin]
+  | .acknowledged | .statusUpdated | .resolved | .alertPublished => [.responder, .admin]
 
 /-- Responder-only events are not part of the public stream. -/
 def Kind.restricted : Kind → Bool
   | .sosCreated | .safetyReported => true
-  | .alertPublished => false
+  | .acknowledged | .statusUpdated | .resolved | .alertPublished => false
 
 def Kind.required : Kind → List Field
   | .sosCreated => [.region, .category]
   | .safetyReported => [.region, .status]
   | .alertPublished => [.region, .body]
+  | .acknowledged | .resolved => [.incident]
+  | .statusUpdated => [.incident, .status]
 
 def Kind.optional : Kind → List Field
   | .sosCreated | .safetyReported => [.body, .location, .at_]
-  | .alertPublished => [.at_]
+  | .acknowledged | .statusUpdated | .resolved | .alertPublished => [.at_]
 
 /-- The accepted values of the `status` field, as an inclusive range of codes. -/
 def Kind.statusRange : Kind → Nat × Nat
   | .safetyReported => (Safety.safe.code, Safety.needsHelp.code)
+  | .statusUpdated => (Status.acknowledged.code, Status.inProgress.code)
   | _ => (0, 0)
+
+/-! ## Incident life cycle
+
+An update about an incident is public, so it carries only the incident, its category and its new
+status: no text and no location (see `Kind.required` and `Kind.optional`). -/
+
+/-- The status a kind moves an incident to, when the kind alone determines it. -/
+def Kind.fixedStatus : Kind → Option Status
+  | .acknowledged => some .acknowledged
+  | .resolved => some .resolved
+  | _ => none
+
+structure Transition where
+  kind : Kind
+  source : Status
+  target : Status
+  deriving Repr, DecidableEq
+
+/-- Every permitted change of an incident. `resolved` has no way out. -/
+def transitions : List Transition := [
+  ⟨.acknowledged, .open_, .acknowledged⟩,
+  ⟨.statusUpdated, .acknowledged, .inProgress⟩,
+  ⟨.statusUpdated, .inProgress, .acknowledged⟩,
+  ⟨.resolved, .open_, .resolved⟩,
+  ⟨.resolved, .acknowledged, .resolved⟩,
+  ⟨.resolved, .inProgress, .resolved⟩]
 
 /-- Regions are numbered `1 .. maxRegion`. -/
 def maxRegion : Nat := 1024

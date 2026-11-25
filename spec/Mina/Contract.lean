@@ -31,6 +31,8 @@ def errors : List ErrorCase := [
   ⟨"FORBIDDEN", .forbidden, "not permitted"⟩,
   ⟨"BAD_AREA", .forbidden, "region not authorized"⟩,
   ⟨"EID_USED", .conflict, "event id already used"⟩,
+  ⟨"NO_INCIDENT", .notFound, "no such incident"⟩,
+  ⟨"BAD_TRANSITION", .conflict, "invalid transition"⟩,
   ⟨"INTERNAL", .internal, "internal error"⟩]
 
 /-- Statuses of responses whose body is built at run time. -/

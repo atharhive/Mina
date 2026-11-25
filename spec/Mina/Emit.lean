@@ -29,6 +29,7 @@ def appGen : String :=
     ("HEALTH_BODY", emitWhole healthShape),
     ("DEGRADED_BODY", emitWhole degradedShape),
     ("SESSION_BODY", emitWhole sessionShape),
+    ("KIND_SOS", toString Domain.Kind.sosCreated.code),
     ("STORED_BODY", emitWhole storedShape),
     ("DUPLICATE_BODY", emitWhole duplicateShape),
     ("SESSION_SECONDS", toString sessionSeconds),
