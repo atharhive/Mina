@@ -1,0 +1,28 @@
+# build output and downloads
+bin/
+build/
+vendor/
+spec/.lake/
+node_modules/
+dist/
+*.o
+
+# data and run output
+*.db
+*.db-wal
+*.db-shm
+results/
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+
+# editors and OS
+.DS_Store
+.vscode/
+.idea/
+
+# local assistant instructions
+CLAUDE.md
