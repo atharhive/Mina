@@ -28,6 +28,9 @@ def incident : String :=
   "SELECT i.region, i.category, i.status, i.updated_seq, i.owner, e.ts, e.at, e.body, e.lat, e.lon " ++
   "FROM incidents i JOIN events e ON e.seq = i.id WHERE i.id = ?1"
 
-def all : List String := [syncPublic, syncAll, head, incident]
+/-- The newest sequence number of every stream (`Db.headOf`), read once at startup. -/
+def heads : String := "SELECT region, vis, max(seq) FROM events GROUP BY region, vis"
+
+def all : List String := [syncPublic, syncAll, head, incident, heads]
 
 end Mina.Query

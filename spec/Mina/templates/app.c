@@ -2,6 +2,7 @@
  * change the specification and run `lake exe derive ../gen` in spec/. */
 #include "rt.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/random.h>
 #include "domain.h"
 
@@ -16,6 +17,41 @@
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
 static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head, *Q_incident;
 static i64 started_at;
+
+/* ---- native read plans: Mina.Plan, Mina.Sync --------------------------------------------- */
+
+@{EVENT_ORDINALS}
+/* native_on: reads may use the B-tree plans and the remembered heads. Off when MINA_FORCE_SQL
+ * is set, and for good once another connection has written (db_foreign_write: the theorems
+ * assume a single writer) or a plan met something it was not derived for. */
+static int native_on;
+static Pgno ROOT_events, ROOT_region;
+static KeyInfo *KI_region;
+static cursor C_events, C_region[2];            /* one index cursor per visibility */
+/* Db.headOf for every stream and the newest sequence number overall. Read at startup, updated
+ * after each commit (head_preserved). */
+static i64 heads[MAX_REGION + 1][2], global_head;
+
+static void native_init(void) {
+  const char *force = getenv("MINA_FORCE_SQL");
+  native_on = !(force && *force && strcmp(force, "0"));
+  if (native_on) {
+    ROOT_events = db_rootpage(@{TABLE_EVENTS});
+    ROOT_region = db_rootpage(@{INDEX_REGION});
+    KI_region = db_keyinfo(@{INDEX_REGION_KEYS}, 1);
+    sqlite3_stmt *s = db_prepare(@{SQL_HEADS});
+    db_batch_begin();                            /* notices writers from here on */
+    int rc;
+    while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+      i64 region = sqlite3_column_int64(s, 0), vis = sqlite3_column_int64(s, 1), seq = sqlite3_column_int64(s, 2);
+      if (region >= 1 && region <= MAX_REGION && (vis == 0 || vis == 1)) heads[region][vis] = seq;
+      if (seq > global_head) global_head = seq;
+    }
+    sqlite3_finalize(s);
+    if (db_batch_end() || rc != SQLITE_DONE) db_die("reading the stream heads");
+  }
+  fprintf(stderr, "native read plans: %s\n", native_on ? "on" : "off");
+}
 
 static void app_init(void) {
   if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
@@ -35,6 +71,7 @@ static void app_init(void) {
   Q_sync_all = db_prepare(@{SQL_SYNC_ALL});
   Q_head = db_prepare(@{SQL_HEAD});
   Q_incident = db_prepare(@{SQL_INCIDENT});
+  native_init();
   started_at = time(0);
 }
 
@@ -133,6 +170,7 @@ typedef struct {
   claims_t who;
   u8 eid[16];
   u8 kind, has;                          /* has: F_* bits of the fields present */
+  i64 stored_seq;                        /* the row this submission added, if it added one */
   i64 region, category, status, incident, lat, lon, at;
   const u8 *body; u32 body_len;
 } event_t;
@@ -295,9 +333,85 @@ static void put_event(out_t *o, sqlite3_stmt *s) {
   @{EVENT_ROW}
 }
 
-/* GET /v1/sync: Mina.Query.syncPublic or syncAll. One row past the limit tells "more". */
+/* put_event from a stored record. Returns -1 if a column does not have the type the schema
+ * gives it. */
+static int put_event_record(out_t *o, i64 seq, const col_t *c) {
+#define COL(name) const col_t *c_##name = &c[COL_events_##name]; int has_##name = c_##name->t != 0; \
+  if (has_##name && !col_is_int(c_##name)) return -1; i64 name = has_##name ? col_int(c_##name) : 0;
+  COL(kind) COL(ts) COL(incident) COL(category) COL(status) COL(lat) COL(lon) COL(at)
+#undef COL
+  if (!has_kind || !has_ts) return -1;
+  const col_t *b = &c[COL_events_body];
+  int has_body = b->t != 0;
+  if (has_body && !col_is_text(b)) return -1;
+  const u8 *body = b->p;
+  u32 body_len = has_body ? col_len(b) : 0;
+  @{EVENT_ROW}
+  return 0;
+}
+
+/* The rowid of the index entry under C_region[v] if it belongs to the stream: 1 yes, 0 the
+ * stream has ended, -1 error. `rc` is the result of the cursor movement. */
+static int stream_entry(int v, i64 region, int rc, i64 *rowid) {
+  if (rc) return rc > 0 ? 0 : -1;
+  rec_t r; col_t c[3];
+  if (cur_record(&C_region[v], &r) || rec_cols(&r, 3, c) || !col_is_int(&c[0]) || !col_is_int(&c[1]) || !col_is_int(&c[2])) return -1;
+  if (col_int(&c[0]) != region || col_int(&c[1]) != v) return 0;
+  *rowid = col_int(&c[2]);
+  return 1;
+}
+
+/* Mina.Db.syncPlan, and syncAllPlan when both visibilities are read: seek each stream just past
+ * the cursor, then repeatedly take the smaller rowid and fetch its row. Equal to the reference
+ * query by syncPlan_eq and syncAllPlan_eq. Returns 0, or -1 if the plan cannot be trusted. */
+static int sync_native(out_t *o, const sync_t *q, i64 *next, int *more) {
+  i64 rowid[2];
+  int has[2] = {0, 0};
+  for (int v = 0; v <= q->restricted; v++) {
+    has[v] = stream_entry(v, q->region, idx_seek_ge3(&C_region[v], KI_region, q->region, v, q->after + 1), &rowid[v]);
+    if (has[v] < 0) return -1;
+  }
+  for (i64 count = 0; has[0] || has[1]; count++) {
+    int v = !has[0] || (has[1] && rowid[1] < rowid[0]);
+    if (count == q->limit) { *more = 1; break; }
+    rec_t r; col_t c[NCOL_events];
+    if (rowid[v] <= *next || cur_seek(&C_events, rowid[v]) || cur_record(&C_events, &r) || rec_cols(&r, NCOL_events, c)) return -1;
+    if (count) { out_need(o, 1); out_lit(o, ",", 1); }
+    if (put_event_record(o, rowid[v], c)) return -1;
+    *next = rowid[v];
+    has[v] = stream_entry(v, q->region, cur_next(&C_region[v]), &rowid[v]);
+    if (has[v] < 0) return -1;
+  }
+  return 0;
+}
+
+/* GET /v1/sync from the B-trees. A cursor at or past the heads of the streams read has an empty
+ * answer without any B-tree access (head_empty, head_empty_all). Returns 0 once j->resp is set. */
+static int exec_sync_native(job_t *j) {
+  const sync_t *q = j->data;
+  i64 head = global_head;
+  if (q->after > head) { j->resp = ERR(RESYNC); return 0; }
+  int quiet = q->after >= heads[q->region][0] && (!q->restricted || q->after >= heads[q->region][1]);
+  out_t o0, *o = &o0;
+  out_begin(o);
+  @{SYNC_BEFORE}
+  i64 next = q->after;
+  int more = 0;
+  if (!quiet && sync_native(o, q, &next, &more)) { out_abort(o); return -1; }
+  @{SYNC_AFTER}
+  j->resp = out_finish(o, @{HDR_OK}, sizeof @{HDR_OK} - 1);
+  return 0;
+}
+
+/* GET /v1/sync: the native plan, else the definition in SQL (Mina.Query.syncPublic or syncAll),
+ * where one row past the limit tells "more". */
 static void exec_sync(job_t *j) {
   const sync_t *q = j->data;
+  if (native_on) {
+    if (!exec_sync_native(j)) return;
+    native_on = 0;
+    fprintf(stderr, "native plan failed, using SQL from now on\n");
+  }
   int rc = sqlite3_step(Q_head);
   i64 head = rc == SQLITE_ROW ? sqlite3_column_int64(Q_head, 0) : 0;
   sqlite3_reset(Q_head);
@@ -487,7 +601,20 @@ static void exec_event(job_t *j) {
     sqlite3_bind_int64(s, 3, seq);
     if (step_reset(s) != SQLITE_DONE) { batch_failed = 1; return; }
   }
+  ev->stored_seq = seq;
   stored_response(j, seq, incident, 0);
+}
+
+/* After a commit: Mina.Sync.bump for every row the batch added. */
+static void advance_heads(const job_t *js, int n) {
+  for (int i = 0; i < n; i++) {
+    if (!js[i].kind || !js[i].is_write) continue;
+    const event_t *ev = js[i].data;
+    if (!ev->stored_seq) continue;
+    int vis = KIND_SPECS[ev->kind].restricted;
+    if (ev->stored_seq > heads[ev->region][vis]) heads[ev->region][vis] = ev->stored_seq;
+    if (ev->stored_seq > global_head) global_head = ev->stored_seq;
+  }
 }
 
 /* One batch = one transaction: reads (snapshot at batch start), then writes, then COMMIT.
@@ -498,7 +625,17 @@ static void app_batch(job_t *js, int n) {
   if (reads || writes) {
     batch_failed = 0;
     db_batch_begin();
+    if (db_foreign_write) native_on = 0;
+    int cursors = native_on && reads;
+    if (cursors) {
+      C_events = cursor_new(ROOT_events, 0);
+      for (int v = 0; v < 2; v++) C_region[v] = cursor_new(ROOT_region, KI_region);
+    }
     for (int i = 0; i < n; i++) if (js[i].kind && !js[i].is_write) exec_read(&js[i]);
+    if (cursors) {
+      cursor_close(&C_events);
+      for (int v = 0; v < 2; v++) cursor_close(&C_region[v]);
+    }
     if (sqlite3_get_autocommit(db)) batch_failed = 1;     /* no transaction left to write in */
     for (int i = 0; i < n && !batch_failed; i++)
       if (js[i].kind && js[i].is_write) {
@@ -507,6 +644,7 @@ static void app_batch(job_t *js, int n) {
       }
     if (batch_failed) { fprintf(stderr, "batch rolled back: %s\n", sqlite3_errmsg(db)); db_batch_abort(); }
     else if (db_batch_end()) batch_failed = 1;
+    else if (native_on && writes) advance_heads(js, n);
     if (batch_failed)
       for (int i = 0; i < n; i++)
         if (js[i].kind && js[i].is_write) { if (js[i].resp) obuf_release(js[i].resp); js[i].resp = ERR(INTERNAL); }

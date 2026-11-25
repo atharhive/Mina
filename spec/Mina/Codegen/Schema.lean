@@ -26,6 +26,11 @@ def emitSchemaSql (ts : List Table) (is : List Index) : String :=
 def layout (t : Table) : String :=
   ",".intercalate (t.cols.map fun c => s!"{c.name}:{c.ty.sql}:{if c.rowid then 1 else 0}")
 
+/-- Where each column sits in a stored record. The startup check guarantees the layout. -/
+def emitOrdinals (t : Table) : String :=
+  String.join (t.cols.zipIdx.map fun (c, i) => s!"#define COL_{t.name}_{c.name} {i}\n") ++
+  s!"#define NCOL_{t.name} {t.cols.length}\n"
+
 def emitSchemaCheck (ts : List Table) (is : List Index) : String :=
   let checks :=
     ts.map (fun t => s!"table_layout({cstr t.name}, {cstr (layout t)})") ++

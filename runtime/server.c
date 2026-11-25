@@ -3,7 +3,8 @@
  *
  * Environment: MINA_DB (database file, required), MINA_SECRET (token key, required, >= 32 bytes),
  * MINA_HOST (127.0.0.1), MINA_PORT (8080), MINA_IDLE_S (120: seconds a connection may go
- * without completing a request or receiving an answer). */
+ * without completing a request or receiving an answer), MINA_FORCE_SQL (set: answer reads with
+ * the reference SQL instead of the native plans). */
 #define _GNU_SOURCE
 #include "sqlite3.c"
 
