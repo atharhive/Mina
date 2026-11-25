@@ -158,6 +158,12 @@ static int db_batch_end(void) {
   return -1;
 }
 
+/* Give up the batch: nothing in it is committed. */
+static void db_batch_abort(void) {
+  db_in_batch = 0;
+  if (!sqlite3_get_autocommit(db)) step_reset(st_rollback);
+}
+
 /* ---- cursors and records --------------------------------------------------------------- */
 
 typedef struct { BtCursor *c; } cursor;

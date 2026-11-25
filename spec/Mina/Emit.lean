@@ -29,6 +29,8 @@ def appGen : String :=
     ("HEALTH_BODY", emitWhole healthShape),
     ("DEGRADED_BODY", emitWhole degradedShape),
     ("SESSION_BODY", emitWhole sessionShape),
+    ("STORED_BODY", emitWhole storedShape),
+    ("DUPLICATE_BODY", emitWhole duplicateShape),
     ("SESSION_SECONDS", toString sessionSeconds),
     ("HDR_OK", hdrIdent .ok),
     ("HDR_CREATED", hdrIdent .created),

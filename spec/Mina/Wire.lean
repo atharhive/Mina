@@ -7,17 +7,23 @@ shapes and routes. `Mina.Contract` states MINA's API with it; `Mina.Codegen` tur
 namespace Mina.Wire
 
 inductive Status where
-  | ok | created | notFound | unavailable
+  | ok | created | badRequest | unauthorized | forbidden | notFound | conflict | internal | unavailable
   deriving Repr, DecidableEq, Inhabited
 
 def Status.line : Status → String
   | .ok => "200 OK"
   | .created => "201 Created"
+  | .badRequest => "400 Bad Request"
+  | .unauthorized => "401 Unauthorized"
+  | .forbidden => "403 Forbidden"
   | .notFound => "404 Not Found"
+  | .conflict => "409 Conflict"
+  | .internal => "500 Internal Server Error"
   | .unavailable => "503 Service Unavailable"
 
 def Status.code : Status → Nat
-  | .ok => 200 | .created => 201 | .notFound => 404 | .unavailable => 503
+  | .ok => 200 | .created => 201 | .badRequest => 400 | .unauthorized => 401 | .forbidden => 403
+  | .notFound => 404 | .conflict => 409 | .internal => 500 | .unavailable => 503
 
 /-- Status line and headers, up to and including `Content-Length: `. -/
 def headerPrefix (s : Status) : String :=
@@ -50,6 +56,7 @@ inductive Shape where
   | int (var : String)          -- a C `i64` expression
   | str (var : String)          -- a C byte string `var` with length `var_len`
   | bool (var : String)         -- a C truth value
+  | nint (var present : String) -- `var`, or `null` when the C condition `present` is false
   | raw (json : String)         -- constant JSON text
   | embed (part : String)       -- JSON written by the code that uses the shape
   deriving Repr, Inhabited

@@ -62,6 +62,7 @@ typedef struct job {
   u32 conn;            /* global connection index */
   u32 gen;             /* connection generation */
   obuf *resp;
+  void *data;          /* the application's decoded request, valid until its batch ends */
 } job_t;
 
 #endif
