@@ -6,6 +6,7 @@
 #
 # Env: MINA_TEST_PORT (3917). Needs curl, sqlite3, jq, openssl and bin/mina-admin.
 set -uo pipefail
+trap '' PIPE    # the server may close a connection the suite is still writing to
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${1:-$ROOT/bin/mina-server}"
 PORT="${MINA_TEST_PORT:-3917}"
@@ -288,6 +289,27 @@ exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 reply="$(timeout 5 cat <&3)"; exec 3<&- 3>&-
 made="$(grep -o 'HTTP/1.1 201' <<<"$reply" | wc -l)"; refused="$(grep -o 'HTTP/1.1 429' <<<"$reply" | wc -l)"
 [ $((made+refused)) = 600 ] && [ "$made" -ge 100 ] && [ "$made" -le 450 ] && ok "new sessions are limited server-wide ($made of 600)" || bad "session limit" "made $made refused $refused"
+
+echo "-- bounded queues"
+BIG="$(printf '\\"%.0s' $(seq 280))"
+for i in $(seq 200); do n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":650,"body":"'"$BIG"'"}'; done
+sync "$CIT" 'region=650&limit=256'; size="$(wc -c <"$TMP/body")"
+peak() { awk '/VmHWM/ {print $2}' "/proc/$PID/status"; }
+before="$(peak)"
+one="$(printf 'GET /v1/sync?region=650&limit=256 HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s' "$CIT")"   # no blank line yet
+exec 3<>"/dev/tcp/127.0.0.1/$PORT"
+{ for i in $(seq 199); do printf '%s\r\n\r\n' "$one"; done; printf '%s\r\nConnection: close\r\n\r\n' "$one"; } >&3
+sleep 1.5; grown=$(( $(peak) - before ))
+[ "$grown" -lt 8192 ] && ok "a client that is not reading costs bounded memory (server grew $grown KiB for $((200*size/1024)) KiB of answers)" \
+  || bad "unbounded output queue" "peak memory grew $grown KiB"
+start=$(date +%s%N)
+got="$(timeout 10 cat <&3 | grep -o 'HTTP/1.1 200' | wc -l)"; exec 3<&- 3>&-
+[ "$got" = 200 ] && ok "it gets all 200 answers once it reads ($(( ($(date +%s%N) - start) / 1000000 )) ms)" || bad "backpressure" "$got of 200 answers"
+exec 3<>"/dev/tcp/127.0.0.1/$PORT"
+{ for i in $(seq 400); do printf '%s\r\n\r\n' "$one"; done; } >&3 2>/dev/null
+timeout 5 cat <&3 >/dev/null 2>&1; [ $? != 124 ] && ok "a client that keeps sending without reading is disconnected" || bad "input bound"
+exec 3<&- 3>&-
+req GET /v1/health; [ "$STATUS" = 200 ] && ok "server is healthy afterwards" || bad "health after flood" "$STATUS"
 
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"

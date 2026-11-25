@@ -28,14 +28,23 @@
 #define NBUF 1024           /* provided receive buffers per ring */
 #define BUFSZ 2048
 #define CQE_BUDGET 2048     /* completions handled per ring per iteration */
+/* Bounded queues. A connection's requests are not parsed while more than OUT_PAUSE bytes of
+ * answers wait for it, nor more than PIPELINE_MAX of them per batch; input that arrives
+ * meanwhile is buffered up to IN_MAX, beyond which the connection is dropped. If all queued
+ * answers together pass OUT_TOTAL, connections past their own pause mark are dropped. */
+#define PIPELINE_MAX 8
+#define OUT_PAUSE (256u * 1024)
+#define OUT_TOTAL (256ull * 1024 * 1024)
+#define IN_MAX 65536u
 
 enum { OP_ACCEPT = 1, OP_RECV, OP_SEND, OP_CLOSE, OP_SHUTDOWN };
 enum { C_FREE = 0, C_OPEN, C_CLOSING };
 
 typedef struct conn {
   u16 gen;
-  u8 state, recv_armed, sending, close_after, hold, pending;
+  u8 state, recv_armed, sending, close_after, hold, pending, aborted;
   u32 in_len, in_cap;
+  u32 out_bytes;          /* answers queued and not yet sent */
   u8 *in;                 /* bytes of a request that is not complete yet */
   obuf *out_head, *out_tail;
 } conn;
@@ -59,6 +68,10 @@ static ring rings[MAX_RINGS];
 static int nrings;
 static int epfd;
 static i64 now_s;           /* wall clock seconds, refreshed every iteration */
+static u64 out_total;       /* out_bytes over all connections */
+#define PEND_MAX (MAX_RINGS * 65536)
+static u32 pend[PEND_MAX];  /* connections to continue parsing after the next batch (each once) */
+static int npend;
 
 static inline int sys_setup(u32 e, struct io_uring_params *p) { return (int)syscall(__NR_io_uring_setup, e, p); }
 static inline int sys_enter(int fd, u32 sub, u32 minc, u32 flags) { return (int)syscall(__NR_io_uring_enter, fd, sub, minc, flags, NULL, 0); }
@@ -87,6 +100,12 @@ static struct io_uring_sqe *sqe_get(ring *r) {
   r->to_submit++;
   __atomic_store_n(r->sq_ktail, r->sq_tail, __ATOMIC_RELEASE);
   return s;
+}
+
+static inline u32 conn_id(int ri, u32 slot) { return (u32)ri << 16 | slot; }
+static void conn_pend(ring *r, u32 slot) {
+  conn *c = &r->conns[slot];
+  if (!c->pending) { c->pending = 1; pend[npend++] = conn_id(r->idx, slot); }
 }
 
 static void arm_accept(ring *r) {
@@ -139,17 +158,48 @@ static void conn_close(ring *r, u32 slot) {
   s->file_index = slot + 1;
   s->user_data = ud(OP_CLOSE, (u8)r->idx, c->gen, slot);
 }
+/* Release the queued answers from b on. */
+static void queue_drop(conn *c, obuf *b) {
+  while (b) {
+    obuf *n = b->next;
+    c->out_bytes -= b->len;
+    out_total -= b->len;
+    obuf_release(b);
+    b = n;
+  }
+}
+/* Drop a connection that may not be reading: an in-flight send would otherwise never finish.
+ * The socket is shut down, which fails that send; the usual close follows. */
+static void conn_abort(ring *r, u32 slot) {
+  conn *c = &r->conns[slot];
+  if (c->state != C_OPEN || c->aborted) return;
+  if (!c->sending) { conn_close(r, slot); return; }
+  c->aborted = 1;
+  c->close_after = 1;
+  queue_drop(c, c->out_head->next);   /* the head belongs to the kernel until its completion */
+  c->out_head->next = 0;
+  c->out_tail = c->out_head;
+  struct io_uring_sqe *s = sqe_get(r);
+  s->opcode = IORING_OP_SHUTDOWN;
+  s->fd = (int)slot;
+  s->flags = IOSQE_FIXED_FILE | IOSQE_CQE_SKIP_SUCCESS;
+  s->len = SHUT_RDWR;
+  s->user_data = ud(OP_SHUTDOWN, (u8)r->idx, c->gen, slot);
+}
 static void conn_reset(conn *c) {
   free(c->in);
   c->in = 0;
   c->in_len = c->in_cap = 0;
-  for (obuf *b = c->out_head; b;) { obuf *n = b->next; obuf_release(b); b = n; }
+  queue_drop(c, c->out_head);
   c->out_head = c->out_tail = 0;
-  c->recv_armed = c->sending = c->close_after = c->hold = 0;
+  c->recv_armed = c->sending = c->close_after = c->hold = c->aborted = 0;
 }
 static void conn_send(ring *r, u32 slot, obuf *b) {
   conn *c = &r->conns[slot];
-  if (c->state != C_OPEN) { obuf_release(b); return; }
+  if (c->state != C_OPEN || c->aborted) { obuf_release(b); return; }
+  if (out_total + b->len > OUT_TOTAL && c->out_bytes > OUT_PAUSE) { obuf_release(b); conn_abort(r, slot); return; }
+  c->out_bytes += b->len;
+  out_total += b->len;
   b->next = 0;
   if (c->out_tail) c->out_tail->next = b; else c->out_head = b;
   c->out_tail = b;
@@ -172,10 +222,6 @@ static job_t jobs[MAX_JOBS];
 static int njobs;
 static u32 rearm[MAX_JOBS];   /* connections whose multishot receive must be re-armed */
 static int nrearm;
-static u32 pend[MAX_JOBS];    /* connections holding complete requests for the next batch */
-static int npend;
-
-static inline u32 conn_id(int ri, u32 slot) { return (u32)ri << 16 | slot; }
 
 /* Implemented by the generated application: decode one request into a job. */
 static void app_decode(const req_t *rq, job_t *j);
@@ -184,14 +230,15 @@ static const u8 RESP_400[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: applicat
 
 /* Parse and decode as many complete requests as possible from p[0..n). Returns bytes used. */
 static inline void conn_hold(ring *r, u32 slot) {
-  conn *c = &r->conns[slot];
-  c->hold = 1;
-  if (!c->pending) { c->pending = 1; pend[npend++] = conn_id(r->idx, slot); }
+  r->conns[slot].hold = 1;
+  conn_pend(r, slot);
 }
 static u32 parse_requests(ring *r, u32 slot, const u8 *p, u32 n) {
   conn *c = &r->conns[slot];
-  u32 used = 0;
+  u32 used = 0, count = 0;
   while (used < n && !c->hold && c->state == C_OPEN) {
+    if (c->out_bytes > OUT_PAUSE) { c->hold = 1; break; }   /* resumed when sends drain */
+    if (count++ == PIPELINE_MAX) { conn_hold(r, slot); break; }
     req_t rq;
     int k = http_parse(p + used, n - used, &rq);
     if (k == 0) break;
@@ -231,7 +278,7 @@ static void conn_keep(conn *c, const u8 *p, u32 n) {
 static void on_data(ring *r, u32 slot, const u8 *p, u32 n) {
   conn *c = &r->conns[slot];
   if (c->in_len || c->hold) {
-    if (c->in_len + n > 65536) { conn_close(r, slot); return; }
+    if (c->in_len + n > IN_MAX) { conn_abort(r, slot); return; }
     if (c->in_len + n > c->in_cap) {
       u32 cap = (c->in_len + n) * 2;
       u8 *m = realloc(c->in, cap);
@@ -295,15 +342,20 @@ static void handle_cqe(ring *r, struct io_uring_cqe *e) {
     if (b && res > 0 && (u32)res < b->len) {   /* short send: continue with the rest */
       b->data += res;
       b->len -= (u32)res;
+      c->out_bytes -= (u32)res;
+      out_total -= (u32)res;
       submit_send(r, slot);
       return;
     }
     if (b) {
       c->out_head = b->next;
       if (!c->out_head) c->out_tail = 0;
+      c->out_bytes -= b->len;
+      out_total -= b->len;
       obuf_release(b);
     }
-    if (res < 0) { c->close_after = 0; for (obuf *x = c->out_head; x;) { obuf *nx = x->next; obuf_release(x); x = nx; } c->out_head = c->out_tail = 0; conn_close(r, slot); return; }
+    if (res < 0) { c->close_after = 0; queue_drop(c, c->out_head); c->out_head = c->out_tail = 0; conn_close(r, slot); return; }
+    if (c->hold && c->out_bytes <= OUT_PAUSE) conn_pend(r, slot);
     if (c->out_head) submit_send(r, slot);
     else if (c->close_after) { c->close_after = 0; conn_close(r, slot); }
     return;
@@ -451,7 +503,7 @@ static void deliver(void) {
 }
 static void release_holds(void) {
   /* connections that stopped parsing at a write (or close) continue in the next batch */
-  static u32 snap[MAX_JOBS];
+  static u32 snap[PEND_MAX];
   int n = npend;
   memcpy(snap, pend, sizeof(u32) * (size_t)n);
   npend = 0;
@@ -460,8 +512,9 @@ static void release_holds(void) {
     u32 slot = snap[i] & 0xffff;
     conn *c = &r->conns[slot];
     c->pending = 0;
+    if (c->state != C_OPEN || c->out_bytes > OUT_PAUSE) continue;   /* held until sends drain */
     c->hold = 0;
-    if (c->state != C_OPEN || !c->in_len) continue;
+    if (!c->in_len) continue;
     u32 used = parse_requests(r, slot, c->in, c->in_len);
     conn_keep(c, c->in + used, c->in_len - used);
   }
