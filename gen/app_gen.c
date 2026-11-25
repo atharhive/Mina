@@ -32,6 +32,7 @@ static const u8 E_NO_INCIDENT[] = "HTTP/1.1 404 Not Found\r\nContent-Type: appli
 static const u8 E_BAD_TRANSITION[] = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: 30\r\n\r\n{\"error\":\"invalid transition\"}";  /* 409 invalid transition */
 static const u8 E_BAD_QUERY[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 25\r\n\r\n{\"error\":\"invalid query\"}";  /* 400 invalid query */
 static const u8 E_RESYNC[] = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: 18\r\n\r\n{\"error\":\"resync\"}";  /* 409 resync */
+static const u8 E_RATE[] = "HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: 29\r\n\r\n{\"error\":\"too many requests\"}";  /* 429 too many requests */
 static const u8 E_INTERNAL[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"error\":\"internal error\"}";  /* 500 internal error */
 #define ERR(name) obuf_static(E_##name, sizeof E_##name - 1)
 
@@ -114,12 +115,37 @@ static int json_int(const jmember *m, i64 lo, i64 hi, i64 *out) {
   return 1;
 }
 
+/* ---- rate limits: Mina.Contract.Bucket ---------------------------------------------------- */
+
+typedef struct { i64 key; u32 tokens, at; } bucket;
+
+/* Take one token. A bucket that last served another key starts full. */
+static int bucket_take(bucket *b, i64 key, u32 rate, u32 burst) {
+  u32 now = (u32)now_s;
+  if (b->key != key) { b->key = key; b->tokens = burst; b->at = now; }
+  else if (now != b->at) {
+    u64 t = b->tokens + (now > b->at ? (u64)(now - b->at) * rate : 0);
+    b->tokens = t > burst ? burst : (u32)t;
+    b->at = now;
+  }
+  if (!b->tokens) return 0;
+  b->tokens--;
+  return 1;
+}
+static bucket session_bucket;
+static bucket citizen_buckets[262144];
+static int citizen_admit(i64 uid) {
+  u64 slot = ((u64)uid * 0x9E3779B97F4A7C15ULL >> 32) & (262144 - 1);
+  return bucket_take(&citizen_buckets[slot], uid, 1, 30);
+}
+
 /* ---- sessions --------------------------------------------------------------------------- */
 
 /* POST /v1/session: a new citizen device identity. No database access, so the response is
  * written while decoding and no job is queued. Always returns 0. */
 static int issue_session(const req_t *rq, job_t *j) {
   (void)rq;
+  if (!bucket_take(&session_bucket, 1, 100, 200)) { j->resp = ERR(RATE); return 0; }
   u64 r;
   if (getrandom(&r, sizeof r, 0) != sizeof r) { j->resp = ERR(UNAVAILABLE); return 0; }
   claims_t c = {.uid = (i64)(r % 999999999999999ULL) + 1, .role = ROLE_CITIZEN};
@@ -243,6 +269,7 @@ static int decode_event(const req_t *rq, job_t *j) {
   }
   /* Responders act inside their regions; a citizen may report from anywhere. */
   if ((present & F_REGION) && who.role != ROLE_CITIZEN && !in_region(&who, ev->region)) { j->resp = ERR(BAD_AREA); return 0; }
+  if (who.role == ROLE_CITIZEN && !citizen_admit(who.uid)) { j->resp = ERR(RATE); return 0; }
   j->data = ev;
   return 1;
 }

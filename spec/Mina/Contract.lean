@@ -35,6 +35,7 @@ def errors : List ErrorCase := [
   ⟨"BAD_TRANSITION", .conflict, "invalid transition"⟩,
   ⟨"BAD_QUERY", .badRequest, "invalid query"⟩,
   ⟨"RESYNC", .conflict, "resync"⟩,
+  ⟨"RATE", .tooMany, "too many requests"⟩,
   ⟨"INTERNAL", .internal, "internal error"⟩]
 
 /-- Statuses of responses whose body is built at run time. -/
@@ -49,6 +50,22 @@ def degradedShape : Shape := .obj [("status", .raw "\"degraded\""), ("db", .raw 
 
 /-- The answer to `POST /v1/session`. -/
 def sessionShape : Shape := .obj [("token", .str "token"), ("sub", .str "sub"), ("exp", .int "exp")]
+
+/-- A token bucket: it holds at most `burst` tokens, gains `rate` per second, and each admitted
+request takes one. -/
+structure Bucket where
+  rate : Nat
+  burst : Nat
+
+/-- New citizen identities, for the whole server. -/
+def sessionLimit : Bucket := ⟨100, 200⟩
+
+/-- Submissions of one citizen. Responders and admins are not limited. -/
+def citizenLimit : Bucket := ⟨1, 30⟩
+
+/-- Citizens tracked at once (a power of two). When two share a slot, each finds a full bucket,
+so one citizen's traffic never uses up another's. -/
+def citizenSlots : Nat := 2 ^ 18
 
 /-- Lifetime of a citizen device token. -/
 def sessionSeconds : Nat := 30 * 86400

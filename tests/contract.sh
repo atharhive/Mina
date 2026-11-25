@@ -151,7 +151,8 @@ expect "280 characters of two bytes each are accepted" 201 '{"seq":5,"incident":
 echo "-- concurrent retries"
 D='{"eid":"'"$(eid 7)"'","kind":1,"region":2,"category":2}'
 pids=()
-for i in $(seq 20); do curl -s -m 5 -o "$TMP/dup$i" -w '%{http_code}' -H "Authorization: Bearer $CIT" --data-binary "$D" "$BASE/v1/events" >"$TMP/code$i" & pids+=($!); done
+BURST="$(token --sub 102 --role citizen)"
+for i in $(seq 20); do curl -s -m 5 -o "$TMP/dup$i" -w '%{http_code}' -H "Authorization: Bearer $BURST" --data-binary "$D" "$BASE/v1/events" >"$TMP/code$i" & pids+=($!); done
 wait "${pids[@]}"
 codes="$(for i in $(seq 20); do cat "$TMP/code$i"; echo; done | sort | uniq -c | tr -s ' \n' ' ')"
 seqs="$(for i in $(seq 20); do jq -r .seq "$TMP/dup$i"; done | sort -u | tr '\n' ' ')"
@@ -187,10 +188,10 @@ rej '{"eid":"'"$E"'","kind":4,"incident":0}' 'invalid incident' "$RESP"
 
 # every (state, action) pair against a table written independently of the server's
 declare -A ALLOWED=([1:ack]=1 [1:resolve]=1 [2:set3]=1 [2:resolve]=1 [3:set2]=1 [3:resolve]=1)
-wrong=
+wrong=; MATRIX="$(token --sub 103 --role citizen)"
 for from in 1 2 3 4; do
   for action in ack set2 set3 resolve; do
-    n=$((n+1)); ev "$CIT" '{"eid":"'"$(eid $n)"'","kind":1,"region":2,"category":3}'; inc="$(jq -r .incident <<<"$BODY")"
+    n=$((n+1)); ev "$MATRIX" '{"eid":"'"$(eid $n)"'","kind":1,"region":2,"category":3}'; inc="$(jq -r .incident <<<"$BODY")"
     case $from in 2) act "$RESP" 2 "$inc" ;; 3) act "$RESP" 2 "$inc"; act "$RESP" 3 "$inc" 3 ;; 4) act "$RESP" 4 "$inc" ;; esac
     case $action in ack) act "$RESP" 2 "$inc" ;; set2) act "$RESP" 3 "$inc" 2 ;; set3) act "$RESP" 3 "$inc" 3 ;; resolve) act "$RESP" 4 "$inc" ;; esac
     want=409; [ -n "${ALLOWED[$from:$action]:-}" ] && want=201
@@ -268,6 +269,25 @@ for id in 0 999999 2 abc -1 1234567890123456789 "$inc.5"; do
   req GET "/v1/incidents/$id" "$ADM"; expect "no incident $id" 404 '{"error":"no such incident"}'
 done
 req GET /v1/incidents "$ADM"; expect "no incident listing" 404 '{"error":"not found"}'
+
+echo "-- rate limits"
+report() { n=$((n+1)); ev "$1" '{"eid":"'"$(eid $n)"'","kind":5,"region":50,"status":1}'; }
+FLOOD="$(token --sub 900 --role citizen)"; accepted=0; limited=0; other=
+for i in $(seq 40); do report "$FLOOD"; case $STATUS in 201) accepted=$((accepted+1)) ;; 429) limited=$((limited+1)) ;; *) other=$STATUS ;; esac; done
+[ -z "$other" ] && [ $accepted -ge 30 ] && [ $accepted -le 33 ] && [ $limited = $((40-accepted)) ] \
+  && ok "a citizen may send a burst of 30, then is limited ($accepted accepted)" || bad "citizen limit" "accepted $accepted limited $limited other $other"
+report "$FLOOD"; [ $STATUS = 429 ] && expect "limited answer" 429 '{"error":"too many requests"}'
+[ "$(sql 'SELECT count(*) FROM events WHERE actor=900 AND seq > 0')" -le $((accepted+1)) ] && ok "limited submissions store nothing" || bad "limited rows"
+report "$(token --sub 901 --role citizen)"; [ $STATUS = 201 ] && ok "another citizen is unaffected" || bad "isolation" "$STATUS"
+sleep 2.1; report "$FLOOD"; [ $STATUS = 201 ] && ok "the budget refills" || bad "refill" "$STATUS"
+other=
+for i in $(seq 40); do n=$((n+1)); ev "$RESP" '{"eid":"'"$(eid $n)"'","kind":6,"region":1,"body":"x"}'; [ $STATUS = 201 ] || other=$STATUS; done
+[ -z "$other" ] && ok "responders are not limited" || bad "responder limited" "$other"
+exec 3<>"/dev/tcp/127.0.0.1/$PORT"
+{ for i in $(seq 600); do printf 'POST /v1/session HTTP/1.1\r\nHost: x\r\n\r\n'; done; printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'; } >&3
+reply="$(timeout 5 cat <&3)"; exec 3<&- 3>&-
+made="$(grep -o 'HTTP/1.1 201' <<<"$reply" | wc -l)"; refused="$(grep -o 'HTTP/1.1 429' <<<"$reply" | wc -l)"
+[ $((made+refused)) = 600 ] && [ "$made" -ge 100 ] && [ "$made" -le 450 ] && ok "new sessions are limited server-wide ($made of 600)" || bad "session limit" "made $made refused $refused"
 
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"

@@ -82,12 +82,37 @@ static int json_int(const jmember *m, i64 lo, i64 hi, i64 *out) {
   return 1;
 }
 
+/* ---- rate limits: Mina.Contract.Bucket ---------------------------------------------------- */
+
+typedef struct { i64 key; u32 tokens, at; } bucket;
+
+/* Take one token. A bucket that last served another key starts full. */
+static int bucket_take(bucket *b, i64 key, u32 rate, u32 burst) {
+  u32 now = (u32)now_s;
+  if (b->key != key) { b->key = key; b->tokens = burst; b->at = now; }
+  else if (now != b->at) {
+    u64 t = b->tokens + (now > b->at ? (u64)(now - b->at) * rate : 0);
+    b->tokens = t > burst ? burst : (u32)t;
+    b->at = now;
+  }
+  if (!b->tokens) return 0;
+  b->tokens--;
+  return 1;
+}
+static bucket session_bucket;
+static bucket citizen_buckets[@{CITIZEN_SLOTS}];
+static int citizen_admit(i64 uid) {
+  u64 slot = ((u64)uid * 0x9E3779B97F4A7C15ULL >> 32) & (@{CITIZEN_SLOTS} - 1);
+  return bucket_take(&citizen_buckets[slot], uid, @{CITIZEN_RATE}, @{CITIZEN_BURST});
+}
+
 /* ---- sessions --------------------------------------------------------------------------- */
 
 /* POST /v1/session: a new citizen device identity. No database access, so the response is
  * written while decoding and no job is queued. Always returns 0. */
 static int issue_session(const req_t *rq, job_t *j) {
   (void)rq;
+  if (!bucket_take(&session_bucket, 1, @{SESSION_RATE}, @{SESSION_BURST})) { j->resp = ERR(RATE); return 0; }
   u64 r;
   if (getrandom(&r, sizeof r, 0) != sizeof r) { j->resp = ERR(UNAVAILABLE); return 0; }
   claims_t c = {.uid = (i64)(r % 999999999999999ULL) + 1, .role = ROLE_CITIZEN};
@@ -204,6 +229,7 @@ static int decode_event(const req_t *rq, job_t *j) {
   }
   /* Responders act inside their regions; a citizen may report from anywhere. */
   if ((present & F_REGION) && who.role != ROLE_CITIZEN && !in_region(&who, ev->region)) { j->resp = ERR(BAD_AREA); return 0; }
+  if (who.role == ROLE_CITIZEN && !citizen_admit(who.uid)) { j->resp = ERR(RATE); return 0; }
   j->data = ev;
   return 1;
 }

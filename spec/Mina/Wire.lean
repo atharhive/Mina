@@ -7,7 +7,7 @@ shapes and routes. `Mina.Contract` states MINA's API with it; `Mina.Codegen` tur
 namespace Mina.Wire
 
 inductive Status where
-  | ok | created | badRequest | unauthorized | forbidden | notFound | conflict | internal | unavailable
+  | ok | created | badRequest | unauthorized | forbidden | notFound | conflict | tooMany | internal | unavailable
   deriving Repr, DecidableEq, Inhabited
 
 def Status.line : Status → String
@@ -18,12 +18,13 @@ def Status.line : Status → String
   | .forbidden => "403 Forbidden"
   | .notFound => "404 Not Found"
   | .conflict => "409 Conflict"
+  | .tooMany => "429 Too Many Requests"
   | .internal => "500 Internal Server Error"
   | .unavailable => "503 Service Unavailable"
 
 def Status.code : Status → Nat
   | .ok => 200 | .created => 201 | .badRequest => 400 | .unauthorized => 401 | .forbidden => 403
-  | .notFound => 404 | .conflict => 409 | .internal => 500 | .unavailable => 503
+  | .notFound => 404 | .conflict => 409 | .tooMany => 429 | .internal => 500 | .unavailable => 503
 
 /-- Status line and headers, up to and including `Content-Length: `. -/
 def headerPrefix (s : Status) : String :=
