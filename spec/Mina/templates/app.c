@@ -14,6 +14,7 @@
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 @{SCHEMA_CHECK}
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
+static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head;
 static i64 started_at;
 
 static void app_init(void) {
@@ -30,6 +31,9 @@ static void app_init(void) {
       "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)");
   Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = ?1");
   Q_incident_update = db_prepare("UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1");
+  Q_sync_public = db_prepare(@{SQL_SYNC_PUBLIC});
+  Q_sync_all = db_prepare(@{SQL_SYNC_ALL});
+  Q_head = db_prepare(@{SQL_HEAD});
   started_at = time(0);
 }
 
@@ -203,11 +207,82 @@ static int decode_event(const req_t *rq, job_t *j) {
   return 1;
 }
 
+/* ---- synchronisation requests ------------------------------------------------------------ */
+
+typedef struct { i64 region, after, limit; u8 restricted; } sync_t;
+
+/* A query parameter holding an integer in [lo, hi]. Absent: *out keeps its value unless the
+ * parameter is required. */
+static int query_int(const req_t *rq, const char *name, int required, i64 lo, i64 hi, i64 *out) {
+  const u8 *v; u32 n;
+  if (!query_param(rq->query, rq->query_len, name, &v, &n)) return !required;
+  jmember m = {0, 0, JT_NUMBER, v, n, 0};
+  return n && json_int(&m, lo, hi, out);
+}
+
+static int decode_sync(const req_t *rq, job_t *j) {
+  claims_t who;
+  if (!authenticate(rq, j, &who)) return 0;
+  sync_t *q = arena_get(sizeof *q);
+  if (!q) { j->resp = ERR(UNAVAILABLE); return 0; }
+  q->after = 0;
+  q->limit = @{SYNC_DEFAULT_LIMIT};
+  if (!query_int(rq, "region", 1, 1, MAX_REGION, &q->region) || !query_int(rq, "after", 0, 0, 999999999999999LL, &q->after) ||
+      !query_int(rq, "limit", 0, 1, @{SYNC_MAX_LIMIT}, &q->limit)) { j->resp = ERR(BAD_QUERY); return 0; }
+  q->restricted = who.role != ROLE_CITIZEN;
+  if (q->restricted && !in_region(&who, q->region)) { j->resp = ERR(BAD_AREA); return 0; }
+  j->data = q;
+  return 1;
+}
+
 /* ---- request decoding: Mina.Contract.routes --------------------------------------------- */
 @{DECODE}
 /* ---- reads ------------------------------------------------------------------------------ */
 
+/* One element of the "events" array, from a row of Query.eventColumns. */
+static void put_event(out_t *o, sqlite3_stmt *s) {
+  i64 seq = sqlite3_column_int64(s, 0), kind = sqlite3_column_int64(s, 1), ts = sqlite3_column_int64(s, 2);
+#define COL(i, name) int has_##name = sqlite3_column_type(s, i) != SQLITE_NULL; i64 name = sqlite3_column_int64(s, i);
+  COL(3, incident) COL(4, category) COL(5, status)
+  int has_body = sqlite3_column_type(s, 6) != SQLITE_NULL;
+  const u8 *body = sqlite3_column_text(s, 6);
+  u32 body_len = (u32)sqlite3_column_bytes(s, 6);
+  COL(7, lat) COL(8, lon) COL(9, at)
+#undef COL
+  @{EVENT_ROW}
+}
+
+/* GET /v1/sync: Mina.Query.syncPublic or syncAll. One row past the limit tells "more". */
+static void exec_sync(job_t *j) {
+  const sync_t *q = j->data;
+  int rc = sqlite3_step(Q_head);
+  i64 head = rc == SQLITE_ROW ? sqlite3_column_int64(Q_head, 0) : 0;
+  sqlite3_reset(Q_head);
+  if (rc != SQLITE_ROW) { j->resp = ERR(INTERNAL); return; }
+  if (q->after > head) { j->resp = ERR(RESYNC); return; }
+  sqlite3_stmt *s = q->restricted ? Q_sync_all : Q_sync_public;
+  sqlite3_bind_int64(s, 1, q->region);
+  sqlite3_bind_int64(s, 2, q->after);
+  sqlite3_bind_int64(s, 3, q->limit + 1);
+  out_t o0, *o = &o0;
+  out_begin(o);
+  @{SYNC_BEFORE}
+  i64 next = q->after, count = 0;
+  int more = 0;
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    if (count == q->limit) { more = 1; break; }
+    if (count++) { out_need(o, 1); out_lit(o, ",", 1); }
+    next = sqlite3_column_int64(s, 0);
+    put_event(o, s);
+  }
+  sqlite3_reset(s);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) { out_abort(o); j->resp = ERR(INTERNAL); return; }
+  @{SYNC_AFTER}
+  j->resp = out_finish(o, @{HDR_OK}, sizeof @{HDR_OK} - 1);
+}
+
 static void exec_read(job_t *j) {
+  if (j->kind == K_SYNC) { exec_sync(j); return; }
   out_t o0, *o = &o0;
   out_begin(o);
   switch (j->kind) {

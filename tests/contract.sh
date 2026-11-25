@@ -206,6 +206,51 @@ wait "${pids[@]}"
 codes="$(cat "$TMP"/code{1..10} | sort | uniq -c | tr -s ' \n' ' ')"
 [ "$codes" = " 1 201 9 409 " ] && ok "racing acknowledgements: one wins" || bad "racing acknowledgements" "$codes"
 
+echo "-- regional sync"
+sync() { req GET "/v1/sync?$2" "$1"; }    # sync <token> <query>
+# What the database holds for a region, as the sync response should list it.
+want_events() { sql "SELECT json_group_array(json_array(seq,kind,ts,incident,category,status,body,lat,lon,at)) FROM (SELECT * FROM events WHERE region=$1 AND vis<=$2 AND seq>$3 ORDER BY seq LIMIT $4)" | jq -c .; }
+head="$(sql 'SELECT max(seq) FROM events')"
+sync '' region=1;                 expect "sync needs a token" 401 '{"error":"missing bearer token"}'
+for q in '' region= region=0 region=1025 region=x 'region=1&after=-1' 'region=1&after=x' 'region=1&limit=0' 'region=1&limit=257' 'region=1&after=1234567890123456789'; do
+  sync "$CIT" "$q"; expect "rejects sync?$q" 400 '{"error":"invalid query"}'
+done
+sync "$CIT" region=1
+[ "$STATUS" = 200 ] && [ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 0 0 64)" ] && ok "citizens receive the public stream" || bad "public stream" "$BODY"
+jq -e 'all(.events[]; .[1] != 1 and .[1] != 5) and all(.events[] | select(.[1] != 6); .[6] == null and .[7] == null and .[8] == null)' >/dev/null <<<"$BODY" \
+  && ok "no reports, safety statuses, text or locations in it" || bad "redaction" "$BODY"
+jq -e --argjson h "$head" '.head == $h and .more == false and .next == .events[-1][0]' >/dev/null <<<"$BODY" && ok "head, next and more" || bad "cursor fields" "$BODY"
+sync "$RESP" region=1
+[ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 1 0 64)" ] && ok "responders receive every event of their region" || bad "responder stream" "$BODY"
+sync "$ADM" region=1; [ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 1 0 64)" ] && ok "admins too" || bad "admin stream"
+sync "$RESP" region=3; expect "responders stay in their regions" 403 '{"error":"region not authorized"}'
+sync "$CIT" "region=1&after=$head";        expect "up to date" 200 '{"head":'"$head"',"events":[],"next":'"$head"',"more":false}'
+sync "$CIT" "region=999&after=3";          expect "quiet region keeps its cursor" 200 '{"head":'"$head"',"events":[],"next":3,"more":false}'
+sync "$CIT" "region=1&after=$((head+1))";  expect "cursor beyond the head" 409 '{"error":"resync"}'
+
+n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":777,"body":"say \"go\"\n→ north \\ ridge","at":7}'; s="$(jq .seq <<<"$BODY")"
+t="$(sql "SELECT ts FROM events WHERE seq=$s")"
+sync "$CIT" region=777; expect "exact response bytes" 200 '{"head":'"$s"',"events":[['"$s"',6,'"$t"',null,null,null,"say \"go\"\n→ north \\ ridge",null,null,7]],"next":'"$s"',"more":false}'
+
+for i in $(seq 70); do n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":600,"body":"alert '"$i"'"}'; done
+sync "$CIT" region=600
+jq -e '(.events | length) == 64 and .more' >/dev/null <<<"$BODY" && ok "default page is 64 events" || bad "default limit" "$(jq '.events|length' <<<"$BODY")"
+for role in "$CIT:0" "$RESP:1"; do
+  after=0; all='[]'; pages=0
+  while :; do
+    sync "${role%:*}" "region=1&after=$after&limit=3"; pages=$((pages+1))
+    all="$(jq -c --argjson a "$all" '$a + .events' <<<"$BODY")"; next="$(jq .next <<<"$BODY")"
+    [ "$next" -ge "$after" ] || { all=backwards; break; }
+    after=$next
+    [ "$(jq .more <<<"$BODY")" = true ] && [ $pages -lt 100 ] || break
+  done
+  [ "$all" = "$(want_events 1 "${role##*:}" 0 1000)" ] && ok "pages of 3 deliver every event once, in order (vis <= ${role##*:}, $pages pages)" || bad "pagination" "$all"
+done
+grep -v '^--' "$ROOT/gen/queries.sql" 2>/dev/null | tr '\n' ' ' | tr ';' '\n' | grep SELECT >"$TMP/queries"
+plans=; while read -r q; do plans+="$(sql "EXPLAIN QUERY PLAN $q")"$'\n'; done <"$TMP/queries"
+[ "$(grep -c 'events_region_vis (region=? AND vis=? AND rowid>?)' <<<"$plans")" = 3 ] && ! grep -qE 'TEMP B-TREE|SCAN (events|incidents)' <<<"$plans" \
+  && ok "reference sync queries walk the region index without sorting" || bad "query plans" "$plans"
+
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3

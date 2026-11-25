@@ -28,6 +28,7 @@ typedef struct {
   u8 close;            /* client asked for Connection: close (or HTTP/1.0 without keep-alive) */
   u8 has_auth;
   const u8 *path; u32 path_len;      /* without the query string */
+  const u8 *query; u32 query_len;    /* after the '?', if any */
   const u8 *auth; u32 auth_len;      /* Authorization header value */
   const u8 *body; u32 body_len;
 } req_t;

@@ -33,6 +33,8 @@ def errors : List ErrorCase := [
   ⟨"EID_USED", .conflict, "event id already used"⟩,
   ⟨"NO_INCIDENT", .notFound, "no such incident"⟩,
   ⟨"BAD_TRANSITION", .conflict, "invalid transition"⟩,
+  ⟨"BAD_QUERY", .badRequest, "invalid query"⟩,
+  ⟨"RESYNC", .conflict, "resync"⟩,
   ⟨"INTERNAL", .internal, "internal error"⟩]
 
 /-- Statuses of responses whose body is built at run time. -/
@@ -51,19 +53,41 @@ def sessionShape : Shape := .obj [("token", .str "token"), ("sub", .str "sub"), 
 /-- Lifetime of a citizen device token. -/
 def sessionSeconds : Nat := 30 * 86400
 
+/-! ## Synchronisation
+
+`GET /v1/sync?region=R&after=C&limit=N` answers with the events of a region after the client's
+cursor: `next` is the cursor to send next time, `more` says whether another page is ready, and
+`head` is the newest sequence number the server holds. A cursor beyond `head` means the server
+no longer has what the client has seen: it must resynchronise. -/
+
+def syncDefaultLimit : Nat := 64
+def syncMaxLimit : Nat := 256
+
+/-- One event, as a fixed array: the columns of `Query.eventColumns`. -/
+def eventShape : Shape := .arr [
+  .int "seq", .int "kind", .int "ts", .nint "incident" "has_incident", .nint "category" "has_category",
+  .nint "status" "has_status", .nstr "body" "has_body", .nint "lat" "has_lat", .nint "lon" "has_lon",
+  .nint "at" "has_at"]
+
+def syncShape : Shape := .obj [
+  ("head", .int "head"), ("events", .arr [.embed "events"]), ("next", .int "next"), ("more", .bool "more")]
+
 def health : Endpoint := { kind := "K_HEALTH" }
 /-- Answered while decoding: no database access. -/
 def session : Endpoint := { kind := "K_SESSION" }
 
 def event : Endpoint := { kind := "K_EVENT", isWrite := true }
 
-def endpoints : List Endpoint := [health, session, event]
+def sync : Endpoint := { kind := "K_SYNC" }
 
-/-- `GET /v1/health`, `POST /v1/session`, `POST /v1/events` -/
+def endpoints : List Endpoint := [health, session, event, sync]
+
+/-- `GET /v1/health`, `GET /v1/sync`, `POST /v1/session`, `POST /v1/events` -/
 def routes : List Route := [
   ⟨.get, [.lit "v1", .lit "health"], health, none⟩,
   ⟨.post, [.lit "v1", .lit "session"], session, some "issue_session"⟩,
-  ⟨.post, [.lit "v1", .lit "events"], event, some "decode_event"⟩
+  ⟨.post, [.lit "v1", .lit "events"], event, some "decode_event"⟩,
+  ⟨.get, [.lit "v1", .lit "sync"], sync, some "decode_sync"⟩
 ]
 
 end Mina.Contract

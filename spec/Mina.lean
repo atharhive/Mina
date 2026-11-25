@@ -1,6 +1,7 @@
 import Mina.Wire
 import Mina.Domain
 import Mina.Schema
+import Mina.Query
 import Mina.Codegen.Domain
 import Mina.Codegen.Schema
 import Mina.Contract

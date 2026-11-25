@@ -11,7 +11,7 @@ namespace Mina.Codegen
 open Mina.Wire
 
 inductive Piece where
-  | lit (s : String) | int (v : String) | nint (v p : String) | str (v : String) | bool (v : String) | embed (p : String)
+  | lit (s : String) | int (v : String) | nint (v p : String) | nstr (v p : String) | str (v : String) | bool (v : String) | embed (p : String)
   deriving Repr, Inhabited
 
 partial def pieces : Shape → List Piece
@@ -23,6 +23,10 @@ partial def pieces : Shape → List Piece
   | .str v => [.str v]
   | .bool v => [.bool v]
   | .nint v p => [.nint v p]
+  | .nstr v p => [.nstr v p]
+  | .arr items =>
+    let inner := items.zipIdx.flatMap fun (v, i) => (if i == 0 then [] else [Piece.lit ","]) ++ pieces v
+    [Piece.lit "["] ++ inner ++ [Piece.lit "]"]
   | .raw j => [.lit j]
   | .embed p => [.embed p]
 
@@ -40,13 +44,15 @@ def emitPiece : Piece → String
   | .str v => s!"out_jstr(o, {v}, {v}_len);"
   | .bool v => s!"if ({v}) " ++ outLit "true" ++ " else " ++ outLit "false"
   | .nint v p => s!"if ({p}) out_i64(o, {v}); else " ++ outLit "null"
+  | .nstr v p => s!"if ({p}) out_jstr(o, {v}, {v}_len); else " ++ outLit "null"
   | .embed _ => ""
 
 /-- Upper bound on the bytes a list of pieces writes. -/
 def room (ps : List Piece) : String :=
   let fixed := ps.foldl (fun n p => match p with
     | .lit s => n + bytes s | .int _ => n + 20 | .nint _ _ => n + 20 | .bool _ => n + 5 | _ => n) 0
-  let strs := ps.filterMap fun p => match p with | .str v => some s!"JSTR_ROOM({v}_len)" | _ => none
+  let strs := ps.filterMap fun p => match p with
+    | .str v | .nstr v _ => some s!"JSTR_ROOM({v}_len)" | _ => none
   " + ".intercalate (toString fixed :: strs)
 
 /-- Code for the pieces of a shape before and after its embedded part. -/

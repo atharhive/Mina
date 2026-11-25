@@ -53,7 +53,11 @@ static int http_parse(const u8 *p, u32 n, req_t *r) {
   r->path = path;
   r->path_len = (u32)(q - path);
   const u8 *qm = memchr(path, '?', r->path_len);
-  if (qm) r->path_len = (u32)(qm - path);
+  if (qm) {
+    r->path_len = (u32)(qm - path);
+    r->query = qm + 1;
+    r->query_len = (u32)(q - qm - 1);
+  }
   q++;
   if (e - q < 10 || memcmp(q, "HTTP/1.", 7)) return -400;
   int http10 = q[7] == '0';
@@ -109,6 +113,23 @@ static int http_parse(const u8 *p, u32 n, req_t *r) {
   r->body = p + he;
   r->body_len = (u32)clen;
   return (int)(he + (u32)clen);
+}
+
+/* The value of the first "name=value" in a query string. Values are used as written (no
+ * percent decoding). Returns 0 if the parameter is absent. */
+static int query_param(const u8 *q, u32 n, const char *name, const u8 **v, u32 *vn) {
+  u32 len = (u32)strlen(name);
+  const u8 *end = q + n;
+  while (q < end) {
+    const u8 *amp = memchr(q, '&', (size_t)(end - q)), *stop = amp ? amp : end;
+    if ((u32)(stop - q) > len && !memcmp(q, name, len) && q[len] == '=') {
+      *v = q + len + 1;
+      *vn = (u32)(stop - *v);
+      return 1;
+    }
+    q = stop + 1;
+  }
+  return 0;
 }
 
 /* Path matching for generated routes. path_lit matches "/<literal>" exactly up to the next

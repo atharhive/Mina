@@ -57,6 +57,8 @@ inductive Shape where
   | str (var : String)          -- a C byte string `var` with length `var_len`
   | bool (var : String)         -- a C truth value
   | nint (var present : String) -- `var`, or `null` when the C condition `present` is false
+  | nstr (var present : String) -- like `str`, or `null`
+  | arr (items : List Shape)
   | raw (json : String)         -- constant JSON text
   | embed (part : String)       -- JSON written by the code that uses the shape
   deriving Repr, Inhabited

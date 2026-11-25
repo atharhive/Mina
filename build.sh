@@ -22,7 +22,7 @@ fi
 
 echo "== lean: check the specification and derive the application layer"
 (cd spec && "$LAKE" build && "$LAKE" exe derive ../build)
-for f in app_gen.c domain.h schema.sql; do
+for f in app_gen.c domain.h queries.sql schema.sql; do
   if ! cmp -s "build/$f" "gen/$f"; then
     echo "gen/$f is not what spec/ generates; run: (cd spec && lake exe derive ../gen)" >&2
     diff -u "gen/$f" "build/$f" | head -40

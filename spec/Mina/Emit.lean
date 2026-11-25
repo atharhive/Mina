@@ -4,6 +4,7 @@ import Mina.Codegen.Responses
 import Mina.Codegen.Routes
 import Mina.Codegen.Schema
 import Mina.Codegen.Domain
+import Mina.Query
 
 /-!
 # Emitting the application layer
@@ -30,6 +31,14 @@ def appGen : String :=
     ("DEGRADED_BODY", emitWhole degradedShape),
     ("SESSION_BODY", emitWhole sessionShape),
     ("KIND_SOS", toString Domain.Kind.sosCreated.code),
+    ("SQL_SYNC_PUBLIC", cstr Query.syncPublic),
+    ("SQL_SYNC_ALL", cstr Query.syncAll),
+    ("SQL_HEAD", cstr Query.head),
+    ("SYNC_DEFAULT_LIMIT", toString syncDefaultLimit),
+    ("SYNC_MAX_LIMIT", toString syncMaxLimit),
+    ("EVENT_ROW", emitWhole eventShape),
+    ("SYNC_BEFORE", (emitAround syncShape).1),
+    ("SYNC_AFTER", (emitAround syncShape).2),
     ("STORED_BODY", emitWhole storedShape),
     ("DUPLICATE_BODY", emitWhole duplicateShape),
     ("SESSION_SECONDS", toString sessionSeconds),
@@ -40,7 +49,11 @@ def appGen : String :=
 
 def schemaSql : String := emitSchemaSql Schema.tables Schema.indexes
 
+def queriesSql : String :=
+  "-- GENERATED from spec/Mina/Query.lean. Do not edit.\n" ++ String.join (Query.all.map (· ++ ";\n"))
+
 /-- The generated files, by name. -/
-def outputs : List (String × String) := [("app_gen.c", appGen), ("domain.h", emitDomainHeader), ("schema.sql", schemaSql)]
+def outputs : List (String × String) := [("app_gen.c", appGen), ("domain.h", emitDomainHeader), ("queries.sql", queriesSql),
+   ("schema.sql", schemaSql)]
 
 end Mina.Emit

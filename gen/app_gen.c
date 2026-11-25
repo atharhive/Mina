@@ -30,11 +30,13 @@ static const u8 E_BAD_AREA[] = "HTTP/1.1 403 Forbidden\r\nContent-Type: applicat
 static const u8 E_EID_USED[] = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"error\":\"event id already used\"}";  /* 409 event id already used */
 static const u8 E_NO_INCIDENT[] = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 28\r\n\r\n{\"error\":\"no such incident\"}";  /* 404 no such incident */
 static const u8 E_BAD_TRANSITION[] = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: 30\r\n\r\n{\"error\":\"invalid transition\"}";  /* 409 invalid transition */
+static const u8 E_BAD_QUERY[] = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 25\r\n\r\n{\"error\":\"invalid query\"}";  /* 400 invalid query */
+static const u8 E_RESYNC[] = "HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: 18\r\n\r\n{\"error\":\"resync\"}";  /* 409 resync */
 static const u8 E_INTERNAL[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"error\":\"internal error\"}";  /* 500 internal error */
 #define ERR(name) obuf_static(E_##name, sizeof E_##name - 1)
 
 
-enum { K_NONE = 0, K_HEALTH, K_SESSION, K_EVENT };
+enum { K_NONE = 0, K_HEALTH, K_SESSION, K_EVENT, K_SYNC };
 
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 static int schema_check(void) {
@@ -44,6 +46,7 @@ static int schema_check(void) {
 }
 
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
+static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head;
 static i64 started_at;
 
 static void app_init(void) {
@@ -60,6 +63,9 @@ static void app_init(void) {
       "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)");
   Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = ?1");
   Q_incident_update = db_prepare("UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1");
+  Q_sync_public = db_prepare("SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 0 AND seq > \?2 ORDER BY seq LIMIT \?3");
+  Q_sync_all = db_prepare("SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 0 AND seq > \?2 UNION ALL SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 1 AND seq > \?2 ORDER BY 1 LIMIT \?3");
+  Q_head = db_prepare("SELECT coalesce(max(seq), 0) FROM events");
   started_at = time(0);
 }
 
@@ -240,6 +246,34 @@ static int decode_event(const req_t *rq, job_t *j) {
   return 1;
 }
 
+/* ---- synchronisation requests ------------------------------------------------------------ */
+
+typedef struct { i64 region, after, limit; u8 restricted; } sync_t;
+
+/* A query parameter holding an integer in [lo, hi]. Absent: *out keeps its value unless the
+ * parameter is required. */
+static int query_int(const req_t *rq, const char *name, int required, i64 lo, i64 hi, i64 *out) {
+  const u8 *v; u32 n;
+  if (!query_param(rq->query, rq->query_len, name, &v, &n)) return !required;
+  jmember m = {0, 0, JT_NUMBER, v, n, 0};
+  return n && json_int(&m, lo, hi, out);
+}
+
+static int decode_sync(const req_t *rq, job_t *j) {
+  claims_t who;
+  if (!authenticate(rq, j, &who)) return 0;
+  sync_t *q = arena_get(sizeof *q);
+  if (!q) { j->resp = ERR(UNAVAILABLE); return 0; }
+  q->after = 0;
+  q->limit = 64;
+  if (!query_int(rq, "region", 1, 1, MAX_REGION, &q->region) || !query_int(rq, "after", 0, 0, 999999999999999LL, &q->after) ||
+      !query_int(rq, "limit", 0, 1, 256, &q->limit)) { j->resp = ERR(BAD_QUERY); return 0; }
+  q->restricted = who.role != ROLE_CITIZEN;
+  if (q->restricted && !in_region(&who, q->region)) { j->resp = ERR(BAD_AREA); return 0; }
+  j->data = q;
+  return 1;
+}
+
 /* ---- request decoding: Mina.Contract.routes --------------------------------------------- */
 static void app_decode(const req_t *rq, job_t *j) {
   const u8 *p = rq->path;
@@ -270,12 +304,93 @@ static void app_decode(const req_t *rq, job_t *j) {
       return;
     }
   }
+  if (rq->method == M_GET) {
+    const u8 *s = p, *e = p + n, *id_p = 0; u32 id_n = 0;
+    (void)id_p; (void)id_n;
+    if (path_lit(&s, e, "/v1", 3) && path_lit(&s, e, "/sync", 5) && s == e) {
+      if (!decode_sync(rq, j)) return;
+      j->kind = K_SYNC; j->is_write = 0;
+      return;
+    }
+  }
   j->resp = ERR(NOT_FOUND);
 }
 
 /* ---- reads ------------------------------------------------------------------------------ */
 
+/* One element of the "events" array, from a row of Query.eventColumns. */
+static void put_event(out_t *o, sqlite3_stmt *s) {
+  i64 seq = sqlite3_column_int64(s, 0), kind = sqlite3_column_int64(s, 1), ts = sqlite3_column_int64(s, 2);
+#define COL(i, name) int has_##name = sqlite3_column_type(s, i) != SQLITE_NULL; i64 name = sqlite3_column_int64(s, i);
+  COL(3, incident) COL(4, category) COL(5, status)
+  int has_body = sqlite3_column_type(s, 6) != SQLITE_NULL;
+  const u8 *body = sqlite3_column_text(s, 6);
+  u32 body_len = (u32)sqlite3_column_bytes(s, 6);
+  COL(7, lat) COL(8, lon) COL(9, at)
+#undef COL
+  out_need(o, 191 + JSTR_ROOM(body_len));
+  out_lit(o, "[", 1);
+  out_i64(o, seq);
+  out_lit(o, ",", 1);
+  out_i64(o, kind);
+  out_lit(o, ",", 1);
+  out_i64(o, ts);
+  out_lit(o, ",", 1);
+  if (has_incident) out_i64(o, incident); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_category) out_i64(o, category); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_status) out_i64(o, status); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_body) out_jstr(o, body, body_len); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_lat) out_i64(o, lat); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_lon) out_i64(o, lon); else out_lit(o, "null", 4);
+  out_lit(o, ",", 1);
+  if (has_at) out_i64(o, at); else out_lit(o, "null", 4);
+  out_lit(o, "]", 1);
+}
+
+/* GET /v1/sync: Mina.Query.syncPublic or syncAll. One row past the limit tells "more". */
+static void exec_sync(job_t *j) {
+  const sync_t *q = j->data;
+  int rc = sqlite3_step(Q_head);
+  i64 head = rc == SQLITE_ROW ? sqlite3_column_int64(Q_head, 0) : 0;
+  sqlite3_reset(Q_head);
+  if (rc != SQLITE_ROW) { j->resp = ERR(INTERNAL); return; }
+  if (q->after > head) { j->resp = ERR(RESYNC); return; }
+  sqlite3_stmt *s = q->restricted ? Q_sync_all : Q_sync_public;
+  sqlite3_bind_int64(s, 1, q->region);
+  sqlite3_bind_int64(s, 2, q->after);
+  sqlite3_bind_int64(s, 3, q->limit + 1);
+  out_t o0, *o = &o0;
+  out_begin(o);
+  out_need(o, 39);
+  out_lit(o, "{\"head\":", 8);
+  out_i64(o, head);
+  out_lit(o, ",\"events\":[", 11);
+  i64 next = q->after, count = 0;
+  int more = 0;
+  while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
+    if (count == q->limit) { more = 1; break; }
+    if (count++) { out_need(o, 1); out_lit(o, ",", 1); }
+    next = sqlite3_column_int64(s, 0);
+    put_event(o, s);
+  }
+  sqlite3_reset(s);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) { out_abort(o); j->resp = ERR(INTERNAL); return; }
+  out_need(o, 43);
+  out_lit(o, "],\"next\":", 9);
+  out_i64(o, next);
+  out_lit(o, ",\"more\":", 8);
+  if (more) out_lit(o, "true", 4); else out_lit(o, "false", 5);
+  out_lit(o, "}", 1);
+  j->resp = out_finish(o, HDR_200, sizeof HDR_200 - 1);
+}
+
 static void exec_read(job_t *j) {
+  if (j->kind == K_SYNC) { exec_sync(j); return; }
   out_t o0, *o = &o0;
   out_begin(o);
   switch (j->kind) {
