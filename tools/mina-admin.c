@@ -2,7 +2,8 @@
  * admin tokens.
  *
  *   MINA_SECRET=... mina-admin token --sub N --role citizen|responder|admin
- *                                    [--regions R,R,...] [--ttl SECONDS]  */
+ *                                    [--regions R,R,...] [--ttl SECONDS]
+ *   mina-admin seed [--events N] [--regions R] [--seed S] | sqlite3 empty.db  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -11,11 +12,13 @@
 #include "json.c"
 #include "jwt.c"
 #include "domain.h"
+#include "seed.c"
 
 static int usage(const char *why) {
   fprintf(stderr, "mina-admin: %s\n"
                   "usage: MINA_SECRET=... mina-admin token --sub N --role citizen|responder|admin\n"
-                  "                                        [--regions R,R,...] [--ttl SECONDS]\n", why);
+                  "                                        [--regions R,R,...] [--ttl SECONDS]\n"
+                  "       mina-admin seed [--events N] [--regions R] [--seed S]\n", why);
   return 2;
 }
 /* A decimal integer in [lo, hi], nothing else. */
@@ -57,7 +60,24 @@ static int cmd_token(int argc, char **argv) {
   return 0;
 }
 
+static int cmd_seed(int argc, char **argv) {
+  i64 events = 10000, regions = 16, seed = 1;
+  for (int i = 0; i < argc; i += 2) {
+    const char *k = argv[i], *v = i + 1 < argc ? argv[i + 1] : 0;
+    if (!v) return usage("missing value");
+    if (!strcmp(k, "--events")) {
+      if (!number(v, 1, 100000000, &events)) return usage("--events must be 1 .. 100000000");
+    } else if (!strcmp(k, "--regions")) {
+      if (!number(v, 1, MAX_REGION, &regions)) return usage("--regions out of range");
+    } else if (!strcmp(k, "--seed")) {
+      if (!number(v, 0, 999999999999999999LL, &seed)) return usage("--seed must be a number");
+    } else return usage("unknown option");
+  }
+  return seed_run((u32)events, (u32)regions, (u64)seed);
+}
+
 int main(int argc, char **argv) {
   if (argc >= 2 && !strcmp(argv[1], "token")) return cmd_token(argc - 2, argv + 2);
+  if (argc >= 2 && !strcmp(argv[1], "seed")) return cmd_seed(argc - 2, argv + 2);
   return usage("unknown command");
 }
