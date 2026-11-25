@@ -3,6 +3,7 @@ import Mina.Codegen.Serialize
 import Mina.Codegen.Responses
 import Mina.Codegen.Routes
 import Mina.Codegen.Schema
+import Mina.Codegen.Domain
 
 /-!
 # Emitting the application layer
@@ -34,6 +35,6 @@ def appGen : String :=
 def schemaSql : String := emitSchemaSql Schema.tables Schema.indexes
 
 /-- The generated files, by name. -/
-def outputs : List (String × String) := [("app_gen.c", appGen), ("schema.sql", schemaSql)]
+def outputs : List (String × String) := [("app_gen.c", appGen), ("domain.h", emitDomainHeader), ("schema.sql", schemaSql)]
 
 end Mina.Emit

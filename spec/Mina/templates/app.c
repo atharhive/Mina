@@ -2,6 +2,7 @@
  * change the specification and run `lake exe derive ../gen` in spec/. */
 #include "rt.h"
 #include <stdio.h>
+#include "domain.h"
 
 /* ---- wire constants: Mina.Contract ----------------------------------------------------- */
 @{HEADERS}

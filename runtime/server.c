@@ -1,7 +1,7 @@
 /* The MINA server is one translation unit: SQLite's amalgamation, the runtime, and the
  * application layer generated from the Lean specification (build/app_gen.c).
  *
- * Environment: MINA_DB (database file, required), MINA_SECRET (token key, required),
+ * Environment: MINA_DB (database file, required), MINA_SECRET (token key, required, >= 32 bytes),
  * MINA_HOST (127.0.0.1), MINA_PORT (8080). */
 #define _GNU_SOURCE
 #include "sqlite3.c"
@@ -24,6 +24,7 @@ int main(void) {
   const char *path = getenv("MINA_DB"), *secret = getenv("MINA_SECRET");
   const char *host = getenv("MINA_HOST"), *port = getenv("MINA_PORT");
   if (!path || !secret) { fprintf(stderr, "MINA_DB and MINA_SECRET are required\n"); return 1; }
+  if (strlen(secret) < MIN_SECRET_BYTES) { fprintf(stderr, "MINA_SECRET must be at least %d bytes\n", MIN_SECRET_BYTES); return 1; }
   if (!host) host = "127.0.0.1";
   if (!port) port = "8080";
   signal(SIGPIPE, SIG_IGN);

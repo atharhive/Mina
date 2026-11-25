@@ -2,6 +2,7 @@
  * change the specification and run `lake exe derive ../gen` in spec/. */
 #include "rt.h"
 #include <stdio.h>
+#include "domain.h"
 
 /* ---- wire constants: Mina.Contract ----------------------------------------------------- */
 static const u8 HDR_200[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ";

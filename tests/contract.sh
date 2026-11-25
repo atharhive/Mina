@@ -4,7 +4,7 @@
 #
 #   tests/contract.sh [server-binary]
 #
-# Env: MINA_TEST_PORT (3917). Needs curl and sqlite3.
+# Env: MINA_TEST_PORT (3917). Needs curl, sqlite3, jq, openssl and bin/mina-admin.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${1:-$ROOT/bin/mina-server}"
@@ -41,6 +41,22 @@ req() {
   CTYPE="$(grep -i '^content-type:' "$TMP/headers" | head -1 | cut -d' ' -f2- | tr -d '\r')"
 }
 expect() { if [ "$STATUS" = "$2" ] && [ "$BODY" = "$3" ]; then ok "$1 -> $STATUS"; else bad "$1" "want $2 $3, got $STATUS $BODY"; fi; }
+
+echo "-- operator tool"
+ADMIN="$ROOT/bin/mina-admin"
+unb64() { local s="${1//-/+}"; s="${s//_//}"; while (( ${#s} % 4 )); do s+="="; done; base64 -d <<<"$s"; }
+TOKEN="$(MINA_SECRET="$SECRET" "$ADMIN" token --sub 42 --role responder --regions 1,7 --ttl 600 2>/dev/null)"
+IFS=. read -r th tp ts <<<"$TOKEN"
+want="$(printf '%s' "$th.$tp" | openssl dgst -sha256 -hmac "$SECRET" -binary | base64 | tr '+/' '-_' | tr -d '=\n')"
+[ -n "$ts" ] && [ "$ts" = "$want" ] && ok "token signature matches openssl" || bad "token signature" "got '$ts' want '$want'"
+claims="$(unb64 "$tp" 2>/dev/null)"
+jq -e --argjson now "$(date +%s)" '.sub == "42" and .role == 2 and .rg == "1,7" and .exp > $now and .exp <= $now + 601' >/dev/null 2>&1 <<<"$claims" \
+  && ok "token claims" || bad "token claims" "$claims"
+for args in "--sub 1 --role king" "--sub 0 --role citizen" "--role citizen" "--sub 1 --role responder --regions 0" "--sub 1 --role responder --regions 1025" "--sub 1 --role citizen --ttl -5"; do
+  if MINA_SECRET="$SECRET" "$ADMIN" token $args >/dev/null 2>&1; then bad "mina-admin accepts: $args"; else ok "mina-admin rejects: $args"; fi
+done
+if env -u MINA_SECRET "$ADMIN" token --sub 1 --role citizen >/dev/null 2>&1; then bad "mina-admin without MINA_SECRET"; else ok "mina-admin requires MINA_SECRET"; fi
+if MINA_DB="$TMP/mina.db" MINA_SECRET=short MINA_PORT=$((PORT+1)) timeout 3 "$SERVER" >/dev/null 2>&1; [ $? = 1 ]; then ok "server rejects a secret under 32 bytes"; else bad "short secret accepted"; fi
 
 echo "-- health and routing"
 req GET /v1/health
