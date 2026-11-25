@@ -28,7 +28,10 @@ def appGen : String :=
     ("DECODE", emitDecode routes notFound),
     ("HEALTH_BODY", emitWhole healthShape),
     ("DEGRADED_BODY", emitWhole degradedShape),
+    ("SESSION_BODY", emitWhole sessionShape),
+    ("SESSION_SECONDS", toString sessionSeconds),
     ("HDR_OK", hdrIdent .ok),
+    ("HDR_CREATED", hdrIdent .created),
     ("HDR_UNAVAILABLE", hdrIdent .unavailable)
   ]
 

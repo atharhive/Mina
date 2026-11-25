@@ -2,6 +2,7 @@
  * change the specification and run `lake exe derive ../gen` in spec/. */
 #include "rt.h"
 #include <stdio.h>
+#include <sys/random.h>
 #include "domain.h"
 
 /* ---- wire constants: Mina.Contract ----------------------------------------------------- */
@@ -19,6 +20,25 @@ static void app_init(void) {
   if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
   Q_health = db_prepare("SELECT 1");
   started_at = time(0);
+}
+
+/* ---- sessions --------------------------------------------------------------------------- */
+
+/* POST /v1/session: a new citizen device identity. No database access, so the response is
+ * written while decoding and no job is queued. Always returns 0. */
+static int issue_session(const req_t *rq, job_t *j) {
+  (void)rq;
+  u64 r;
+  if (getrandom(&r, sizeof r, 0) != sizeof r) { j->resp = ERR(UNAVAILABLE); return 0; }
+  claims_t c = {.uid = (i64)(r % 999999999999999ULL) + 1, .role = ROLE_CITIZEN};
+  i64 exp = now_s + @{SESSION_SECONDS};
+  u8 token[JWT_MAX], sub[24];
+  u32 token_len = jwt_sign(&c, exp, token), sub_len = fmt_u64(sub, (u64)c.uid);
+  out_t o0, *o = &o0;
+  out_begin(o);
+  @{SESSION_BODY}
+  j->resp = out_finish(o, @{HDR_CREATED}, sizeof @{HDR_CREATED} - 1);
+  return 0;
 }
 
 /* ---- request decoding: Mina.Contract.routes --------------------------------------------- */

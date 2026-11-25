@@ -7,16 +7,17 @@ shapes and routes. `Mina.Contract` states MINA's API with it; `Mina.Codegen` tur
 namespace Mina.Wire
 
 inductive Status where
-  | ok | notFound | unavailable
+  | ok | created | notFound | unavailable
   deriving Repr, DecidableEq, Inhabited
 
 def Status.line : Status → String
   | .ok => "200 OK"
+  | .created => "201 Created"
   | .notFound => "404 Not Found"
   | .unavailable => "503 Service Unavailable"
 
 def Status.code : Status → Nat
-  | .ok => 200 | .notFound => 404 | .unavailable => 503
+  | .ok => 200 | .created => 201 | .notFound => 404 | .unavailable => 503
 
 /-- Status line and headers, up to and including `Content-Length: `. -/
 def headerPrefix (s : Status) : String :=
@@ -88,6 +89,9 @@ structure Route where
   method : Method
   path : List Seg
   endpoint : Endpoint
+  /-- A C function `int f(const req_t *rq, job_t *j)` of the template. It runs after the route
+  matched; returning 0 means it has already decided the response. -/
+  decoder : Option String := none
   deriving Repr
 
 end Mina.Wire

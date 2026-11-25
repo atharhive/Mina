@@ -2,17 +2,20 @@
  * change the specification and run `lake exe derive ../gen` in spec/. */
 #include "rt.h"
 #include <stdio.h>
+#include <sys/random.h>
 #include "domain.h"
 
 /* ---- wire constants: Mina.Contract ----------------------------------------------------- */
 static const u8 HDR_200[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ";
+static const u8 HDR_201[] = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: ";
 static const u8 HDR_503[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: ";
 
 static const u8 E_NOT_FOUND[] = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"error\":\"not found\"}";  /* 404 not found */
+static const u8 E_UNAVAILABLE[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 23\r\n\r\n{\"error\":\"unavailable\"}";  /* 503 unavailable */
 #define ERR(name) obuf_static(E_##name, sizeof E_##name - 1)
 
 
-enum { K_NONE = 0, K_HEALTH };
+enum { K_NONE = 0, K_HEALTH, K_SESSION };
 
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 static int schema_check(void) {
@@ -30,6 +33,32 @@ static void app_init(void) {
   started_at = time(0);
 }
 
+/* ---- sessions --------------------------------------------------------------------------- */
+
+/* POST /v1/session: a new citizen device identity. No database access, so the response is
+ * written while decoding and no job is queued. Always returns 0. */
+static int issue_session(const req_t *rq, job_t *j) {
+  (void)rq;
+  u64 r;
+  if (getrandom(&r, sizeof r, 0) != sizeof r) { j->resp = ERR(UNAVAILABLE); return 0; }
+  claims_t c = {.uid = (i64)(r % 999999999999999ULL) + 1, .role = ROLE_CITIZEN};
+  i64 exp = now_s + 2592000;
+  u8 token[JWT_MAX], sub[24];
+  u32 token_len = jwt_sign(&c, exp, token), sub_len = fmt_u64(sub, (u64)c.uid);
+  out_t o0, *o = &o0;
+  out_begin(o);
+  out_need(o, 44 + JSTR_ROOM(token_len) + JSTR_ROOM(sub_len));
+  out_lit(o, "{\"token\":", 9);
+  out_jstr(o, token, token_len);
+  out_lit(o, ",\"sub\":", 7);
+  out_jstr(o, sub, sub_len);
+  out_lit(o, ",\"exp\":", 7);
+  out_i64(o, exp);
+  out_lit(o, "}", 1);
+  j->resp = out_finish(o, HDR_201, sizeof HDR_201 - 1);
+  return 0;
+}
+
 /* ---- request decoding: Mina.Contract.routes --------------------------------------------- */
 static void app_decode(const req_t *rq, job_t *j) {
   const u8 *p = rq->path;
@@ -39,6 +68,15 @@ static void app_decode(const req_t *rq, job_t *j) {
     (void)id_p; (void)id_n;
     if (path_lit(&s, e, "/v1", 3) && path_lit(&s, e, "/health", 7) && s == e) {
       j->kind = K_HEALTH; j->is_write = 0;
+      return;
+    }
+  }
+  if (rq->method == M_POST) {
+    const u8 *s = p, *e = p + n, *id_p = 0; u32 id_n = 0;
+    (void)id_p; (void)id_n;
+    if (path_lit(&s, e, "/v1", 3) && path_lit(&s, e, "/session", 8) && s == e) {
+      if (!issue_session(rq, j)) return;
+      j->kind = K_SESSION; j->is_write = 0;
       return;
     }
   }

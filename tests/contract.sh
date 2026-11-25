@@ -70,6 +70,19 @@ req GET /v1/health/x;          expect "GET /v1/health/x" 404 '{"error":"not foun
 req POST /v1/health;           expect "POST /v1/health" 404 '{"error":"not found"}'
 req DELETE /v1/health;         expect "DELETE /v1/health" 404 '{"error":"not found"}'
 
+echo "-- sessions"
+req POST /v1/session
+[ "$STATUS" = 201 ] && jq -e '(keys == ["exp","sub","token"]) and (.sub | test("^[1-9][0-9]{0,14}$"))' >/dev/null 2>&1 <<<"$BODY" \
+  && ok "POST /v1/session -> 201" || bad "POST /v1/session" "got $STATUS $BODY"
+first="$(jq -r .sub 2>/dev/null <<<"$BODY")"
+IFS=. read -r th tp ts <<<"$(jq -r .token 2>/dev/null <<<"$BODY")"
+[ -n "$ts" ] && [ "$ts" = "$(printf '%s' "$th.$tp" | openssl dgst -sha256 -hmac "$SECRET" -binary | base64 | tr '+/' '-_' | tr -d '=\n')" ] \
+  && ok "session token is signed with the server key" || bad "session signature" "$BODY"
+jq -e --argjson b "$BODY" '.role == 1 and .sub == $b.sub and .exp == $b.exp and (has("rg") | not)' >/dev/null 2>&1 <<<"$(unb64 "$tp" 2>/dev/null)" \
+  && ok "session token is a citizen token" || bad "session claims" "$(unb64 "$tp" 2>/dev/null)"
+req POST /v1/session; [ "$(jq -r .sub 2>/dev/null <<<"$BODY")" != "$first" ] && ok "every session gets a new identity" || bad "session identity" "$BODY"
+req GET /v1/session; expect "GET /v1/session" 404 '{"error":"not found"}'
+
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3
