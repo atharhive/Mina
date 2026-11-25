@@ -53,7 +53,14 @@ the runtime or SQLite are correct.
 6. **Generation.** The C transition and validation tables are printed from `Mina.Domain` by a
    generator that is not itself proved.
 
-## Not yet connected to the server
+## Where the server uses them
 
-At this point the server still answers reads with the reference SQL. The native plans and the
-remembered heads are to be built against these theorems and compared with that SQL.
+| Proof | C in `spec/Mina/templates/app.c` | Check on the C |
+|---|---|---|
+| `syncPlan_eq`, `syncAllPlan_eq` | `sync_native`, `stream_entry` | `tests/diff.sh` against SQL |
+| `head_empty`, `head_empty_all` | the `quiet` test in `exec_sync_native` | the same |
+| `head_preserved` | `native_init`, `advance_heads` | the same, with writes interleaved |
+
+The server answers with SQL instead when `MINA_FORCE_SQL` is set, for good once another
+connection has written (assumption 4), and if a plan meets a row whose type or order is not what
+it was derived for. Incident reads and the duplicate lookup still use SQL.

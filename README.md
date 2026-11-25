@@ -5,10 +5,11 @@ Infrastructure for when infrastructure fails.
 MINA is an offline-first disaster communication system in development: one native C server on
 Linux io_uring and SQLite, with its application layer specified in Lean 4 and generated into C.
 
-**Status: Milestone B.** The server API works end to end on plain SQL: citizen sessions,
-idempotent submissions, incident transitions, regional synchronisation, rate limits and bounded
-queues. No theorems, native read plans, frontend or TLS exist yet. See
-[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+**Status: Milestone C.** The server API works end to end, and synchronisation runs on native
+B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
+C against that SQL ([what is and is not proved](docs/PROOFS.md),
+[measurements](docs/BASELINE.md)). No frontend or TLS exists yet, and MINA's routes have not
+been load tested. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 MINA is not a replacement for official emergency services.
 
@@ -27,6 +28,9 @@ MINA is not a replacement for official emergency services.
 tests/unit.sh           # runtime modules, under ASan and UBSan
 tests/contract.sh       # exact responses, roles, transitions, sync, limits, framing
 tests/seed.sh           # the synthetic data generator
+tests/proofs.sh         # the theorems and the axioms they use
+tests/diff.sh           # native read plans against the reference SQL
+bench/micro.sh          # their cost, in process
 
 ./build.sh sanitize     # bin/mina-server-san, bin/mina-admin-san
 MINA_ADMIN=$PWD/bin/mina-admin-san tests/contract.sh bin/mina-server-san
@@ -52,6 +56,7 @@ bin/mina-admin token --sub 1 --role responder --regions 1,2          # responder
 | `MINA_HOST` | `127.0.0.1` | there is no TLS: keep it on loopback or behind a TLS proxy |
 | `MINA_PORT` | `8080` | |
 | `MINA_IDLE_S` | `120` | seconds a connection may go without a request or progress |
+| `MINA_FORCE_SQL` | unset | answer reads with the reference SQL instead of the native plans |
 
 After changing `spec/`, regenerate the checked-in copies with
 `(cd spec && lake exe derive ../gen)`.
@@ -102,7 +107,7 @@ runtime/   application-independent C: transport, HTTP, JSON, tokens, buffers, SQ
 tools/     mina-admin: offline tokens and synthetic data
 tests/     unit, contract and seed tests, a kernel probe
 bench/     load generator and single-machine benchmark runner
-docs/      architecture, guide to reusing the Lean pipeline, plan, measurements
+docs/      architecture, proofs, guide to reusing the Lean pipeline, plan, measurements
 ```
 
 ## Benchmarks

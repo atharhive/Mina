@@ -32,29 +32,21 @@ is D.
 ## Proof-guided execution
 
 1. Sync scan: seek `(region, vis, after+1)` in the index, walk forward, seek each row.
-   Responders merge the two visibility ranges by `seq`. No sort, no bytecode interpreter.
+   Responders merge the two visibility ranges by `seq`. No sort, no bytecode interpreter. Done.
 2. Empty sync: `head[region][vis]`, derived in-memory state updated after each commit. If
    `after >= head` the answer is empty without a B-tree access. (Proven derived state is
-   allowed; response and query-result caches are not.)
-3. Idempotent insert: `ON CONFLICT(eid) DO NOTHING`, then an index seek for the original.
+   allowed; response and query-result caches are not.) Done.
+3. Idempotent insert: today a SQL lookup by event id, then the insert. A native seek of the
+   unique index is a candidate for E, if profiling shows it matters.
 
 Each native plan keeps a SQL reference path (`MINA_FORCE_SQL=1`) for fallback and testing.
 
-### Theorems to prove (no `sorry`, no new axioms)
+### Theorems
 
-| Theorem | Statement |
-|---|---|
-| `syncPlan_eq` | under `Inv`, the native scan equals filter, sort by seq, take n |
-| `merge_eq` | merging the two ranges equals the filtered reference for responders |
-| `head_empty` | under `HeadInv`, `after >= head` implies the reference answer is empty |
-| `head_preserved` | append and head update preserve `HeadInv` |
-| `apply_idem` | applying an event twice equals applying it once |
-| `cursor_mono`, `no_skip` | cursors never go back; under prefix visibility no matching event is missed |
-| `transition_valid` | permitted (role, status, kind) steps preserve validity; the C table is generated from the same data |
-| `reserve_safe` | (later) background reads never take capacity reserved for emergency writes |
-
-Assumptions go in `docs/PROOFS.md`. The generated C is tested, not proved: an executable
-oracle in Lean and differential runs against the SQL path.
+Proved, without `sorry` or new axioms: see [PROOFS.md](PROOFS.md). Still to do:
+`reserve_safe` (background reads never take capacity reserved for emergency writes), which needs
+the scheduling policy it describes, and an executable oracle in Lean as a second reference
+beside the SQL.
 
 ## Milestones
 
@@ -62,7 +54,7 @@ oracle in Lean and differential runs against the SQL path.
 |---|---|---|
 | A | Audit, baseline, restructure | baseline measured, health pipeline builds and passes |
 | B | Done: schema, contract, auth and roles, `mina-admin`, SQL plans, transition table, rate limits, bounded queues, idle timeout, synthetic seed | contract suite and ASan/UBSan build pass (see BASELINE.md) |
-| C | Model, invariant, plans, sync, transitions; native plans; oracle; differential tests | theorems checked; no mismatch in 10^6 requests; native vs SQL measured |
+| C | Done except the Lean oracle: model, invariant, plans, sync, transitions; native plans; differential tests | theorems checked; no mismatch in 10^6 requests; native vs SQL measured (see BASELINE.md) |
 | D | Citizen, Command, Observatory; outbox and sync; static assets | bundle sizes and Lighthouse measured; offline create, reconnect, delivered |
 | E | Profile, change one thing, measure, keep or revert (`docs/OPTIMIZATION_LOG.md`); scale to 100K locally, then AWS | results per step; AWS cost approved first |
 | F | Crisis workloads, `kill -9` recovery, fuzzing, secure (TLS) category | no lost acknowledged event, no duplicate |

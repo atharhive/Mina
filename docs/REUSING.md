@@ -15,9 +15,10 @@ runtime/*.c                 io_uring, HTTP, JSON, tokens, buffers, SQLite
 ```
 
 **What Lean does here today.** The specification is typed data, and a generator written in Lean
-turns it into C. The Lean compiler checks that the data is well formed. The specification states
-no theorems yet, and nothing in this repository proves the generated or runtime C correct. Test
-what you generate.
+turns it into C. The same specification carries a model of the event table and theorems about
+the read plans ([PROOFS.md](PROOFS.md)). Those theorems are about the model: nothing proves the
+generated or runtime C correct. Test what you generate, as `tests/diff.sh` does by comparing
+each native plan with SQL.
 
 **Licence.** This code is under the AGPL-3.0 (see `LICENSE`). Software built from it, including
 a network service, has to meet that licence's terms.
@@ -31,6 +32,7 @@ a network service, has to meet that licence's terms.
 | `spec/Mina/Codegen/C.lean`, `Serialize.lean`, `Responses.lean`, `Routes.lean`, `Schema.lean` | the generator | keep |
 | `spec/Mina/Codegen/Domain.lean` | C constants and tables from the domain | replace along with the domain |
 | `spec/Mina/Domain.lean`, `Schema.lean`, `Query.lean`, `Contract.lean` | the application | replace |
+| `spec/Mina/Model.lean`, `Plan.lean`, `Sync.lean`, `Transition.lean` | the model and theorems | replace; the proof pattern (reference query, plan, equality) carries over |
 | `spec/Mina/Emit.lean` | which generated text fills which template slot | rewrite for your slots |
 | `spec/Mina/templates/app.c` | handlers: the C that is not generated | rewrite; keep the batch skeleton |
 | `tools/`, `tests/`, `bench/workload_*.h` | operator tool, tests, workload | replace |

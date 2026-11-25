@@ -8,8 +8,8 @@ SQL. What comes next is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 `./build.sh`:
 
 1. Downloads the SQLite 3.54.1 amalgamation if absent and checks its SHA-256.
-2. `lake build`: Lean elaborates `spec/` and the kernel checks every theorem in it. (The
-   specification holds data and the generator; it states no theorems yet.)
+2. `lake build`: Lean elaborates `spec/` and the kernel checks every theorem in it
+   ([PROOFS.md](PROOFS.md)).
 3. `lake exe derive ../build` writes `app_gen.c` (the `@{...}` slots of
    `spec/Mina/templates/app.c` filled in), `domain.h` (roles, kinds, field rules and the
    transition table), `schema.sql` and `queries.sql`.
@@ -68,8 +68,14 @@ A write is answered only after its batch has committed. With `synchronous=NORMAL
 write survives a process crash but may be lost on power failure; the choice against `FULL` is to
 be measured. Neither case has been tested yet (Milestone F).
 
-Available to generated code and not used yet: B-tree cursors and record decoding over SQLite's
-own pager, and foreign-writer detection (`db.c`). Milestone C's native plans need both.
+## Native read plans
+
+`GET /v1/sync` does not run SQL. It seeks the `events_region_vis` index just past the client's
+cursor, walks it (two cursors merged by sequence number for responders) and fetches each row by
+rowid through SQLite's own B-tree layer, so the pager, WAL and locking are unchanged. If the
+cursor has reached the remembered newest sequence number of every stream it reads, the answer is
+written without touching a B-tree. [PROOFS.md](PROOFS.md) states what is proved about this, what
+is assumed and when the server falls back to SQL.
 
 ## Application independence
 

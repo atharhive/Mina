@@ -90,6 +90,40 @@ Reading these numbers:
 - Kernel memory grows by roughly 4 KB per connection. Extrapolated, not measured: 300,000
   connections would need about 1.2 GB.
 
+## Milestone C: native sync plans
+
+| Check | Result |
+|---|---|
+| `tests/proofs.sh` | all listed theorems present; only `propext`, `Classical.choice`, `Quot.sound` |
+| `MINA_DIFF_SEED=7 tests/diff.sh 1000000` (commit `683a4ad`) | 1,000,000 requests, 0 mismatches, 2,910 s; no fallback to SQL during the run |
+| The same test with a bug planted in a copy: heads not advanced; restricted stream ignored; page limit off by one | each fails within the first 17 requests |
+| `tests/diff.sh 10000`, ASan and UBSan build | 0 mismatches, no sanitizer report |
+| `tests/contract.sh` with `MINA_FORCE_SQL=1` | 156 of 156 |
+
+`bench/micro.sh 200000 16`: the application's read and response serialization only (no network,
+HTTP parsing, token check or transaction), in process on CPU 0, one open read transaction,
+100,000 requests per case, answers compared byte for byte before timing. Three runs; the table
+shows the lowest and highest.
+
+| Case | Native, us | SQL, us | SQL / native | Answer, bytes |
+|---|---|---|---|---:|
+| Public stream, 64 events | 15.1 to 16.7 | 26.3 to 28.1 | 1.7 | 4,227 |
+| Responder merge, 64 events | 16.0 to 17.2 | 29.5 to 31.8 | 1.8 to 1.9 | 4,743 |
+| Public stream, 256 events | 58.1 to 64.1 | 99.5 to 104.5 | 1.6 to 1.7 | 16,557 |
+| Public stream, a few new events | 0.30 to 0.31 | 1.38 to 1.47 | 4.7 to 4.8 | 191 |
+| Up to date, citizen | 0.02 | 1.08 to 1.14 | 49 to 53 | 125 |
+| Up to date, responder | 0.02 | 2.03 to 2.05 | 91 to 96 | 125 |
+
+Reading these numbers:
+
+- The research target of 2 to 5 times is reached for small and empty answers, not for full
+  pages. A full page still costs about 0.25 us per event: one table seek per row, because the
+  index does not cover the columns, plus serialization. Which dominates has not been profiled.
+- An up-to-date answer needs no B-tree access (`head_empty`); the 20 ns is building the
+  response.
+- How much this saves per request on the server is unknown until MINA's own routes are load
+  tested, and depends on how often clients are already up to date.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.
