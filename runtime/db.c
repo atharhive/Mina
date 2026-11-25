@@ -248,6 +248,24 @@ static int idx_seek_ge(cursor *c, KeyInfo *ki, i64 k) {
   return sqlite3BtreeEof(c->c) ? 1 : 0;
 }
 
+/* The same for three integer fields: two index keys and the rowid that ends every entry. */
+static int idx_seek_ge3(cursor *c, KeyInfo *ki, i64 k1, i64 k2, i64 k3) {
+  Mem m[3];
+  memset(m, 0, sizeof m);
+  m[0].u.i = k1; m[1].u.i = k2; m[2].u.i = k3;
+  m[0].flags = m[1].flags = m[2].flags = MEM_Int;
+  UnpackedRecord r;
+  memset(&r, 0, sizeof r);
+  r.pKeyInfo = ki;
+  r.aMem = m;
+  r.nField = 3;
+  r.default_rc = +1;
+  int res;
+  if (sqlite3BtreeIndexMoveto(c->c, &r, &res) != SQLITE_OK) return -1;
+  if (res < 0) return cur_next(c);
+  return sqlite3BtreeEof(c->c) ? 1 : 0;
+}
+
 /* Record format (https://sqlite.org/fileformat2.html#record_format). */
 typedef struct { u64 t; const u8 *p; } col_t;
 
