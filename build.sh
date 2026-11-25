@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Builds bin/mina-server and bin/mina-admin:
+# Builds the server and the operator tool:
 #   1. Lean checks the specification (spec/) and generates the application layer. The build
 #      stops if a checked-in file in gen/ differs from what the specification generates.
 #   2. The C compiler builds one translation unit: SQLite (pinned, checksummed), the runtime,
 #      and the generated code.
+#
+#   ./build.sh            optimised binaries
+#   ./build.sh sanitize   bin/mina-server-san and bin/mina-admin-san, with ASan and UBSan
 #
 # Needs: elan/lake (or LAKE=/path/to/lake), a C compiler, curl, unzip, sha256sum.
 set -euo pipefail
@@ -30,10 +33,16 @@ for f in app_gen.c domain.h queries.sql schema.sql; do
   fi
 done
 
+case "${1:-}" in
+  "")       SUF=;     OPT=(-O2 -march=native -fno-plt) ;;
+  sanitize) SUF=-san; OPT=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all) ;;
+  *) echo "usage: ./build.sh [sanitize]" >&2; exit 2 ;;
+esac
+
 echo "== cc"
-cc -O2 -march=native -fno-plt -pthread -o bin/mina-server \
+cc "${OPT[@]}" -pthread -o "bin/mina-server$SUF" \
   -DSQLITE_THREADSAFE=2 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE \
   -DSQLITE_USE_ALLOCA -DSQLITE_DQS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 \
   -Iruntime -Ibuild -I"vendor/$SQLITE" runtime/server.c -lm
-cc -O2 -Iruntime -Ibuild -Itools -o bin/mina-admin tools/mina-admin.c
-echo "built bin/mina-server bin/mina-admin"
+cc "${OPT[@]}" -Iruntime -Ibuild -Itools -o "bin/mina-admin$SUF" tools/mina-admin.c
+echo "built bin/mina-server$SUF bin/mina-admin$SUF"

@@ -47,7 +47,7 @@ req() {
 expect() { if [ "$STATUS" = "$2" ] && [ "$BODY" = "$3" ]; then ok "$1 -> $STATUS"; else bad "$1" "want $2 $3, got $STATUS $BODY"; fi; }
 
 echo "-- operator tool"
-ADMIN="$ROOT/bin/mina-admin"
+ADMIN="${MINA_ADMIN:-$ROOT/bin/mina-admin}"
 unb64() { local s="${1//-/+}"; s="${s//_//}"; while (( ${#s} % 4 )); do s+="="; done; base64 -d <<<"$s"; }
 TOKEN="$(MINA_SECRET="$SECRET" "$ADMIN" token --sub 42 --role responder --regions 1,7 --ttl 600 2>/dev/null)"
 IFS=. read -r th tp ts <<<"$TOKEN"
@@ -347,5 +347,9 @@ hung=0
 for _ in $(seq 200); do curl -sf -m 1 -o /dev/null "$BASE/v1/health" || hung=$((hung+1)); [ $hung -ge 3 ] && break; done
 [ $hung = 0 ] && ok "200 sequential connections" || bad "sequential connections" "$hung requests got no answer within 1 s"
 
+echo "-- after the run"
+kill -0 "$PID" 2>/dev/null && ok "the server is still running" || bad "the server died"
+! grep -qE 'runtime error|ERROR: [A-Za-z]*Sanitizer|batch rolled back' "$TMP"/*.log && ok "no sanitizer report or failed batch in the logs" \
+  || bad "server log" "$(grep -hE -m3 'runtime error|Sanitizer|batch rolled back' "$TMP"/*.log)"
 echo "passed=$pass failed=$fail"
 [ $fail = 0 ] || { echo "-- server log"; tail -20 "$TMP/server.log"; exit 1; }

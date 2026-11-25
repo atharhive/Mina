@@ -3,7 +3,7 @@
 # have produced. Needs bin/mina-admin, bin/mina-server, sqlite3, curl and jq.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ADMIN="$ROOT/bin/mina-admin"; SERVER="$ROOT/bin/mina-server"
+ADMIN="${MINA_ADMIN:-$ROOT/bin/mina-admin}"; SERVER="${1:-$ROOT/bin/mina-server}"
 PORT="${MINA_TEST_PORT:-3917}"
 TMP="$(mktemp -d)"; PID=
 trap 'if [ -n "$PID" ]; then kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; fi; rm -rf "$TMP"' EXIT
@@ -42,5 +42,6 @@ got="$(curl -s -m 2 -H "Authorization: Bearer $T" "http://127.0.0.1:$PORT/v1/syn
 want="$(sql 'SELECT json_group_array(seq) FROM (SELECT seq FROM events WHERE region = 3 AND seq > 19000 ORDER BY seq LIMIT 256)' | jq -c .)"
 [ -n "$got" ] && [ "$got" = "$want" ] && ok "the server serves the seeded data" || bad "sync over seed" "$got / $want"
 
+! grep -qE 'runtime error|ERROR: [A-Za-z]*Sanitizer' "$TMP"/server.log "$TMP"/err && ok "no sanitizer report" || bad "sanitizer report"
 echo "passed=$pass failed=$fail"
 [ $fail = 0 ]
