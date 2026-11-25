@@ -2,6 +2,7 @@ import Mina.Wire
 import Mina.Domain
 import Mina.Model
 import Mina.Plan
+import Mina.Sync
 import Mina.Schema
 import Mina.Query
 import Mina.Codegen.Domain
