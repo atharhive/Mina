@@ -1,0 +1,32 @@
+import Mina.Contract
+import Mina.Codegen.Serialize
+import Mina.Codegen.Responses
+import Mina.Codegen.Routes
+
+/-!
+# Emitting the application layer
+
+`app_gen.c` is produced from the contract (`Mina.Contract`). Fixed algorithmic skeletons are
+templates; everything they are specialized by is computed here.
+
+The runtime (`runtime/*.c`) is application independent: io_uring transport, HTTP framing,
+JSON input scanning, HS256, output buffers and SQLite B-tree cursor primitives.
+-/
+namespace Mina.Emit
+open Mina.Wire Mina.Codegen Mina.Contract
+
+def templateMain : String := include_str "templates/app.c"
+
+def appGen : String :=
+  fill templateMain [
+    ("HEADERS", emitHeaders dynamicStatuses),
+    ("ERRORS", emitErrors errors),
+    ("KINDS", emitKinds endpoints),
+    ("DECODE", emitDecode routes notFound),
+    ("HEALTH_BODY", emitWhole healthShape),
+    ("DEGRADED_BODY", emitWhole degradedShape),
+    ("HDR_OK", hdrIdent .ok),
+    ("HDR_UNAVAILABLE", hdrIdent .unavailable)
+  ]
+
+end Mina.Emit
