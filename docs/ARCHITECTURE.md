@@ -1,7 +1,7 @@
 # Architecture
 
-State of the tree at the end of Milestone B: the inherited engine with MINA's API, served by
-SQL. What comes next is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+State of the tree at the end of Milestone C: the inherited engine with MINA's API.
+Synchronisation reads come from native B-tree plans, everything else from SQL. What comes next is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 ## Build lifecycle
 
@@ -26,6 +26,7 @@ SQL. What comes next is in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 | `Mina.Schema` | tables and the region index; produces the schema and a startup layout check |
 | `Mina.Query` | the SQL that defines what reads return |
 | `Mina.Contract` | routes, errors, response shapes, rate limits |
+| `Mina.Model`, `Plan`, `Sync`, `Transition` | the event store as a model, and the theorems about reads, retries, cursors and transitions |
 | `Mina.Codegen`, `Mina.Emit` | the generator |
 
 ## Request lifecycle
