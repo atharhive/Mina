@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds bin/mina-server:
 #   1. Lean checks the specification (spec/) and generates the application layer. The build
-#      stops if the checked-in gen/app_gen.c differs from what the specification generates.
+#      stops if a checked-in file in gen/ differs from what the specification generates.
 #   2. The C compiler builds one translation unit: SQLite (pinned, checksummed), the runtime,
 #      and the generated code.
 #
@@ -22,11 +22,13 @@ fi
 
 echo "== lean: check the specification and derive the application layer"
 (cd spec && "$LAKE" build && "$LAKE" exe derive ../build)
-if ! cmp -s build/app_gen.c gen/app_gen.c; then
-  echo "gen/app_gen.c is not what spec/ generates; run: (cd spec && lake exe derive ../gen)" >&2
-  diff -u gen/app_gen.c build/app_gen.c | head -40
-  exit 1
-fi
+for f in app_gen.c schema.sql; do
+  if ! cmp -s "build/$f" "gen/$f"; then
+    echo "gen/$f is not what spec/ generates; run: (cd spec && lake exe derive ../gen)" >&2
+    diff -u "gen/$f" "build/$f" | head -40
+    exit 1
+  fi
+done
 
 echo "== cc"
 cc -O2 -march=native -fno-plt -pthread -o bin/mina-server \

@@ -13,10 +13,18 @@ static const u8 E_NOT_FOUND[] = "HTTP/1.1 404 Not Found\r\nContent-Type: applica
 
 enum { K_NONE = 0, K_HEALTH };
 
+/* ---- stored layout: Mina.Schema --------------------------------------------------------- */
+static int schema_check(void) {
+  return table_layout("events", "seq:INTEGER:1,eid:BLOB:0,region:INTEGER:0,vis:INTEGER:0,kind:INTEGER:0,incident:INTEGER:0,category:INTEGER:0,status:INTEGER:0,actor:INTEGER:0,ts:INTEGER:0,at:INTEGER:0,lat:INTEGER:0,lon:INTEGER:0,body:TEXT:0") &&
+         table_layout("incidents", "id:INTEGER:1,owner:INTEGER:0,region:INTEGER:0,category:INTEGER:0,status:INTEGER:0,updated_seq:INTEGER:0") &&
+         index_layout("events_region_vis", "region,vis");
+}
+
 static sqlite3_stmt *Q_health;
 static i64 started_at;
 
 static void app_init(void) {
+  if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
   Q_health = db_prepare("SELECT 1");
   started_at = time(0);
 }

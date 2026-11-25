@@ -23,8 +23,13 @@ echo "-- configuration"
 if env -u MINA_DB -u MINA_SECRET timeout 5 "$SERVER" >/dev/null 2>&1; then bad "refuses to start without MINA_DB and MINA_SECRET"
 else ok "refuses to start without MINA_DB and MINA_SECRET"; fi
 
-sqlite3 "$TMP/mina.db" 'PRAGMA user_version = 1;'
-MINA_DB="$TMP/mina.db" MINA_SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+sqlite3 "$TMP/empty.db" 'PRAGMA user_version = 1;'
+MINA_DB="$TMP/empty.db" MINA_SECRET="$SECRET" MINA_PORT="$PORT" timeout 5 "$SERVER" >/dev/null 2>&1; rc=$?
+[ $rc != 0 ] && [ $rc != 124 ] && ok "refuses a database without the MINA schema" || bad "database without schema" "exit $rc"
+
+sqlite3 "$TMP/mina.db" <"$ROOT/gen/schema.sql" || { echo "cannot apply gen/schema.sql"; exit 1; }
+MINA_DB="$TMP/mina.db" MINA_SECRET="$SECRET" \
   MINA_HOST=127.0.0.1 MINA_PORT="$PORT" "$SERVER" >"$TMP/server.log" 2>&1 & PID=$!
 for _ in $(seq 100); do curl -sf -m 1 -o /dev/null "$BASE/v1/health" && break; sleep 0.1; done
 

@@ -2,6 +2,7 @@ import Mina.Contract
 import Mina.Codegen.Serialize
 import Mina.Codegen.Responses
 import Mina.Codegen.Routes
+import Mina.Codegen.Schema
 
 /-!
 # Emitting the application layer
@@ -20,6 +21,7 @@ def templateMain : String := include_str "templates/app.c"
 def appGen : String :=
   fill templateMain [
     ("HEADERS", emitHeaders dynamicStatuses),
+    ("SCHEMA_CHECK", emitSchemaCheck Schema.tables Schema.indexes),
     ("ERRORS", emitErrors errors),
     ("KINDS", emitKinds endpoints),
     ("DECODE", emitDecode routes notFound),
@@ -28,5 +30,10 @@ def appGen : String :=
     ("HDR_OK", hdrIdent .ok),
     ("HDR_UNAVAILABLE", hdrIdent .unavailable)
   ]
+
+def schemaSql : String := emitSchemaSql Schema.tables Schema.indexes
+
+/-- The generated files, by name. -/
+def outputs : List (String × String) := [("app_gen.c", appGen), ("schema.sql", schemaSql)]
 
 end Mina.Emit

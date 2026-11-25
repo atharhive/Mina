@@ -9,10 +9,13 @@
 
 @{KINDS}
 
+/* ---- stored layout: Mina.Schema --------------------------------------------------------- */
+@{SCHEMA_CHECK}
 static sqlite3_stmt *Q_health;
 static i64 started_at;
 
 static void app_init(void) {
+  if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
   Q_health = db_prepare("SELECT 1");
   started_at = time(0);
 }

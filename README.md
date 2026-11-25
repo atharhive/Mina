@@ -24,7 +24,7 @@ MINA is not a replacement for official emergency services.
 ./build.sh                 # check the specification, generate C, compile bin/mina-server
 tests/contract.sh          # exact responses, framing and connection wakeups
 
-sqlite3 mina.db 'PRAGMA user_version = 1;'
+sqlite3 mina.db < gen/schema.sql
 MINA_DB=mina.db MINA_SECRET="$(openssl rand -hex 32)" bin/mina-server
 curl http://127.0.0.1:8080/v1/health
 ```

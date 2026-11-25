@@ -1,4 +1,6 @@
 import Mina.Wire
+import Mina.Schema
+import Mina.Codegen.Schema
 import Mina.Contract
 import Mina.Codegen.C
 import Mina.Codegen.Serialize
