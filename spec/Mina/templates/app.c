@@ -14,7 +14,7 @@
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 @{SCHEMA_CHECK}
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
-static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head;
+static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head, *Q_incident;
 static i64 started_at;
 
 static void app_init(void) {
@@ -34,6 +34,7 @@ static void app_init(void) {
   Q_sync_public = db_prepare(@{SQL_SYNC_PUBLIC});
   Q_sync_all = db_prepare(@{SQL_SYNC_ALL});
   Q_head = db_prepare(@{SQL_HEAD});
+  Q_incident = db_prepare(@{SQL_INCIDENT});
   started_at = time(0);
 }
 
@@ -235,6 +236,21 @@ static int decode_sync(const req_t *rq, job_t *j) {
   return 1;
 }
 
+typedef struct { claims_t who; i64 id; } incident_t;
+
+/* GET /v1/incidents/:id. Anything that is not a positive decimal number names no incident. */
+static int decode_incident(const req_t *rq, job_t *j, const u8 *id, u32 id_n) {
+  claims_t who;
+  if (!authenticate(rq, j, &who)) return 0;
+  incident_t *q = arena_get(sizeof *q);
+  if (!q) { j->resp = ERR(UNAVAILABLE); return 0; }
+  q->who = who;
+  jmember m = {0, 0, JT_NUMBER, id, id_n, 0};
+  if (!json_int(&m, 1, 999999999999999LL, &q->id)) { j->resp = ERR(NO_INCIDENT); return 0; }
+  j->data = q;
+  return 1;
+}
+
 /* ---- request decoding: Mina.Contract.routes --------------------------------------------- */
 @{DECODE}
 /* ---- reads ------------------------------------------------------------------------------ */
@@ -281,8 +297,44 @@ static void exec_sync(job_t *j) {
   j->resp = out_finish(o, @{HDR_OK}, sizeof @{HDR_OK} - 1);
 }
 
+/* GET /v1/incidents/:id: the report for responders of the region, the summary for the person
+ * who made it, nothing for anyone else. */
+static void exec_incident(job_t *j) {
+  const incident_t *q = j->data;
+  sqlite3_stmt *s = Q_incident;
+  sqlite3_bind_int64(s, 1, q->id);
+  int rc = sqlite3_step(s);
+  if (rc != SQLITE_ROW) {
+    sqlite3_reset(s);
+    j->resp = rc == SQLITE_DONE ? ERR(NO_INCIDENT) : ERR(INTERNAL);
+    return;
+  }
+  i64 id = q->id, region = sqlite3_column_int64(s, 0), category = sqlite3_column_int64(s, 1),
+      status = sqlite3_column_int64(s, 2), updated_seq = sqlite3_column_int64(s, 3), owner = sqlite3_column_int64(s, 4);
+  int responder = q->who.role != ROLE_CITIZEN && in_region(&q->who, region);
+  if (!responder && owner != q->who.uid) { sqlite3_reset(s); j->resp = ERR(NO_INCIDENT); return; }
+  out_t o0, *o = &o0;
+  out_begin(o);
+  if (responder) {
+    i64 ts = sqlite3_column_int64(s, 5);
+#define COL(i, name) int has_##name = sqlite3_column_type(s, i) != SQLITE_NULL; i64 name = sqlite3_column_int64(s, i);
+    COL(6, at)
+    int has_body = sqlite3_column_type(s, 7) != SQLITE_NULL;
+    const u8 *body = sqlite3_column_text(s, 7);
+    u32 body_len = (u32)sqlite3_column_bytes(s, 7);
+    COL(8, lat) COL(9, lon)
+#undef COL
+    @{REPORT_BODY}
+  } else {
+    @{SUMMARY_BODY}
+  }
+  sqlite3_reset(s);
+  j->resp = out_finish(o, @{HDR_OK}, sizeof @{HDR_OK} - 1);
+}
+
 static void exec_read(job_t *j) {
   if (j->kind == K_SYNC) { exec_sync(j); return; }
+  if (j->kind == K_INCIDENT) { exec_incident(j); return; }
   out_t o0, *o = &o0;
   out_begin(o);
   switch (j->kind) {

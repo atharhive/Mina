@@ -72,6 +72,20 @@ def eventShape : Shape := .arr [
 def syncShape : Shape := .obj [
   ("head", .int "head"), ("events", .arr [.embed "events"]), ("next", .int "next"), ("more", .bool "more")]
 
+/-! ## Incidents
+
+Responders of the region see the report that opened an incident. The person who made it sees only
+where it stands. -/
+
+def summaryFields : List (String × Shape) := [
+  ("id", .int "id"), ("region", .int "region"), ("category", .int "category"),
+  ("status", .int "status"), ("updated_seq", .int "updated_seq")]
+
+def summaryShape : Shape := .obj summaryFields
+def reportShape : Shape := .obj (summaryFields ++ [("report", .obj [
+  ("ts", .int "ts"), ("at", .nint "at" "has_at"), ("body", .nstr "body" "has_body"),
+  ("lat", .nint "lat" "has_lat"), ("lon", .nint "lon" "has_lon")])])
+
 def health : Endpoint := { kind := "K_HEALTH" }
 /-- Answered while decoding: no database access. -/
 def session : Endpoint := { kind := "K_SESSION" }
@@ -80,14 +94,18 @@ def event : Endpoint := { kind := "K_EVENT", isWrite := true }
 
 def sync : Endpoint := { kind := "K_SYNC" }
 
-def endpoints : List Endpoint := [health, session, event, sync]
+def incident : Endpoint := { kind := "K_INCIDENT" }
 
-/-- `GET /v1/health`, `GET /v1/sync`, `POST /v1/session`, `POST /v1/events` -/
+def endpoints : List Endpoint := [health, session, event, sync, incident]
+
+/-- `GET /v1/health`, `GET /v1/sync`, `GET /v1/incidents/:id`, `POST /v1/session`,
+`POST /v1/events` -/
 def routes : List Route := [
   ⟨.get, [.lit "v1", .lit "health"], health, none⟩,
   ⟨.post, [.lit "v1", .lit "session"], session, some "issue_session"⟩,
   ⟨.post, [.lit "v1", .lit "events"], event, some "decode_event"⟩,
-  ⟨.get, [.lit "v1", .lit "sync"], sync, some "decode_sync"⟩
+  ⟨.get, [.lit "v1", .lit "sync"], sync, some "decode_sync"⟩,
+  ⟨.get, [.lit "v1", .lit "incidents", .id], incident, some "decode_incident"⟩
 ]
 
 end Mina.Contract

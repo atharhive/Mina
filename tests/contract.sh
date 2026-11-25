@@ -248,8 +248,26 @@ for role in "$CIT:0" "$RESP:1"; do
 done
 grep -v '^--' "$ROOT/gen/queries.sql" 2>/dev/null | tr '\n' ' ' | tr ';' '\n' | grep SELECT >"$TMP/queries"
 plans=; while read -r q; do plans+="$(sql "EXPLAIN QUERY PLAN $q")"$'\n'; done <"$TMP/queries"
-[ "$(grep -c 'events_region_vis (region=? AND vis=? AND rowid>?)' <<<"$plans")" = 3 ] && ! grep -qE 'TEMP B-TREE|SCAN (events|incidents)' <<<"$plans" \
+[ "$(grep -c 'events_region_vis (region=? AND vis=? AND rowid>?)' <<<"$plans")" = 3 ] && grep -q 'SEARCH i USING INTEGER PRIMARY KEY' <<<"$plans" && ! grep -qE 'TEMP B-TREE|SCAN (events|incidents)' <<<"$plans" \
   && ok "reference sync queries walk the region index without sorting" || bad "query plans" "$plans"
+
+echo "-- incident retrieval"
+n=$((n+1)); ev "$CIT" '{"eid":"'"$(eid $n)"'","kind":1,"region":2,"category":5,"body":"no water","lat":10,"lon":-20,"at":99}'
+inc="$(jq .incident <<<"$BODY")"; t="$(sql "SELECT ts FROM events WHERE seq=$inc")"
+SUMMARY='"id":'"$inc"',"region":2,"category":5,"status":1,"updated_seq":'"$inc"
+req GET "/v1/incidents/$inc";          expect "incident needs a token" 401 '{"error":"missing bearer token"}'
+req GET "/v1/incidents/$inc" "$CIT";   expect "the reporter sees the summary" 200 "{$SUMMARY}"
+req GET "/v1/incidents/$inc" "$RESP";  expect "a responder sees the report" 200 "{$SUMMARY"',"report":{"ts":'"$t"',"at":99,"body":"no water","lat":10,"lon":-20}}'
+req GET "/v1/incidents/$inc" "$ADM";   [ "$STATUS" = 200 ] && jq -e .report >/dev/null <<<"$BODY" && ok "an admin sees the report" || bad "admin view" "$BODY"
+act "$RESP" 2 "$inc"; u="$(jq .seq <<<"$BODY")"
+req GET "/v1/incidents/$inc" "$CIT";   expect "status follows updates" 200 '{"id":'"$inc"',"region":2,"category":5,"status":2,"updated_seq":'"$u"'}'
+for who in "$CIT2:another citizen" "$RESP9:a responder of another region"; do
+  req GET "/v1/incidents/$inc" "${who%:*}"; expect "hidden from ${who##*:}" 404 '{"error":"no such incident"}'
+done
+for id in 0 999999 2 abc -1 1234567890123456789 "$inc.5"; do
+  req GET "/v1/incidents/$id" "$ADM"; expect "no incident $id" 404 '{"error":"no such incident"}'
+done
+req GET /v1/incidents "$ADM"; expect "no incident listing" 404 '{"error":"not found"}'
 
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"

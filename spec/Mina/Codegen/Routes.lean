@@ -20,7 +20,9 @@ def emitSeg : Seg → String
 def emitRoute (r : Route) : String :=
   let cond := " && ".intercalate (r.path.map emitSeg ++ ["s == e"])
   let decode := match r.decoder with
-    | some f => s!"      if (!{f}(rq, j)) return;\n"
+    | some f =>
+      let params := if r.path.contains .id then ", id_p, id_n" else ""
+      s!"      if (!{f}(rq, j{params})) return;\n"
     | none => ""
   s!"  if (rq->method == {methodC r.method}) \{
     const u8 *s = p, *e = p + n, *id_p = 0; u32 id_n = 0;

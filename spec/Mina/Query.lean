@@ -23,6 +23,11 @@ def syncAll : String := visible 0 ++ " UNION ALL " ++ visible 1 ++ " ORDER BY 1 
 /-- The newest sequence number. -/
 def head : String := "SELECT coalesce(max(seq), 0) FROM events"
 
-def all : List String := [syncPublic, syncAll, head]
+/-- An incident with the report that opened it. -/
+def incident : String :=
+  "SELECT i.region, i.category, i.status, i.updated_seq, i.owner, e.ts, e.at, e.body, e.lat, e.lon " ++
+  "FROM incidents i JOIN events e ON e.seq = i.id WHERE i.id = ?1"
+
+def all : List String := [syncPublic, syncAll, head, incident]
 
 end Mina.Query

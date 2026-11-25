@@ -98,8 +98,9 @@ structure Route where
   method : Method
   path : List Seg
   endpoint : Endpoint
-  /-- A C function `int f(const req_t *rq, job_t *j)` of the template. It runs after the route
-  matched; returning 0 means it has already decided the response. -/
+  /-- A C function of the template, `int f(const req_t *rq, job_t *j)`, with the bytes of the
+  path parameter added when the path has one. It runs after the route matched; returning 0 means
+  it has already decided the response. -/
   decoder : Option String := none
   deriving Repr
 
