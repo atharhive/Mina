@@ -1,0 +1,10 @@
+name = "minaspec"
+version = "0.1.0"
+defaultTargets = ["Mina", "derive"]
+
+[[lean_lib]]
+name = "Mina"
+
+[[lean_exe]]
+name = "derive"
+root = "Main"
