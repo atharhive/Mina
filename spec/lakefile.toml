@@ -2,8 +2,16 @@ name = "minaspec"
 version = "0.1.0"
 defaultTargets = ["Mina", "derive"]
 
+# `Mina.Emit` embeds this file with `include_str`. Without the declaration Lake does not rebuild
+# after a change to the template alone, and the generated code stays stale.
+[[input_file]]
+name = "appTemplate"
+path = "Mina/templates/app.c"
+text = true
+
 [[lean_lib]]
 name = "Mina"
+needs = ["appTemplate"]
 
 [[lean_exe]]
 name = "derive"

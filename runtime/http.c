@@ -119,6 +119,7 @@ static int http_parse(const u8 *p, u32 n, req_t *r) {
  * percent decoding). Returns 0 if the parameter is absent. */
 static int query_param(const u8 *q, u32 n, const char *name, const u8 **v, u32 *vn) {
   u32 len = (u32)strlen(name);
+  if (!n) return 0;
   const u8 *end = q + n;
   while (q < end) {
     const u8 *amp = memchr(q, '&', (size_t)(end - q)), *stop = amp ? amp : end;

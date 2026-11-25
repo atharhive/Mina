@@ -214,9 +214,10 @@ sync() { req GET "/v1/sync?$2" "$1"; }    # sync <token> <query>
 want_events() { sql "SELECT json_group_array(json_array(seq,kind,ts,incident,category,status,body,lat,lon,at)) FROM (SELECT * FROM events WHERE region=$1 AND vis<=$2 AND seq>$3 ORDER BY seq LIMIT $4)" | jq -c .; }
 head="$(sql 'SELECT max(seq) FROM events')"
 sync '' region=1;                 expect "sync needs a token" 401 '{"error":"missing bearer token"}'
-for q in '' region= region=0 region=1025 region=x 'region=1&after=-1' 'region=1&after=x' 'region=1&limit=0' 'region=1&limit=257' 'region=1&after=1234567890123456789'; do
+for q in '' region= region=0 region=1025 region=x 'region=1&after=-1' 'region=1&after=x' 'region=1&limit=0' 'region=1&limit=257' 'region=1&after=1234567890123456789' 'region=1&after=-' 'region=-'; do
   sync "$CIT" "$q"; expect "rejects sync?$q" 400 '{"error":"invalid query"}'
 done
+req GET /v1/sync "$CIT"; expect "rejects sync without a query" 400 '{"error":"invalid query"}'
 sync "$CIT" region=1
 [ "$STATUS" = 200 ] && [ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 0 0 64)" ] && ok "citizens receive the public stream" || bad "public stream" "$BODY"
 jq -e 'all(.events[]; .[1] != 1 and .[1] != 5) and all(.events[] | select(.[1] != 6); .[6] == null and .[7] == null and .[8] == null)' >/dev/null <<<"$BODY" \
@@ -300,8 +301,9 @@ one="$(printf 'GET /v1/sync?region=650&limit=256 HTTP/1.1\r\nHost: x\r\nAuthoriz
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 { for i in $(seq 199); do printf '%s\r\n\r\n' "$one"; done; printf '%s\r\nConnection: close\r\n\r\n' "$one"; } >&3
 sleep 1.5; grown=$(( $(peak) - before ))
-[ "$grown" -lt 8192 ] && ok "a client that is not reading costs bounded memory (server grew $grown KiB for $((200*size/1024)) KiB of answers)" \
-  || bad "unbounded output queue" "peak memory grew $grown KiB"
+if grep -q __asan_init "$SERVER"; then echo "  skip bounded memory: resident size under AddressSanitizer says nothing about the queue"
+elif [ "$grown" -lt 8192 ]; then ok "a client that is not reading costs bounded memory (server grew $grown KiB for $((200*size/1024)) KiB of answers)"
+else bad "unbounded output queue" "peak memory grew $grown KiB"; fi
 start=$(date +%s%N)
 got="$(timeout 10 cat <&3 | grep -o 'HTTP/1.1 200' | wc -l)"; exec 3<&- 3>&-
 [ "$got" = 200 ] && ok "it gets all 200 answers once it reads ($(( ($(date +%s%N) - start) / 1000000 )) ms)" || bad "backpressure" "$got of 200 answers"

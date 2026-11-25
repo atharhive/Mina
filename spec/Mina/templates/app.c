@@ -69,8 +69,9 @@ static int in_region(const claims_t *c, i64 region) {
 static int json_int(const jmember *m, i64 lo, i64 hi, i64 *out) {
   if (m->type != JT_NUMBER || m->v_len > 16) return 0;
   const u8 *p = m->v, *e = p + m->v_len;
-  int neg = *p == '-';
+  int neg = p < e && *p == '-';
   p += neg;
+  if (p == e) return 0;
   i64 v = 0;
   for (; p < e; p++) {
     if (*p < '0' || *p > '9') return 0;
@@ -498,6 +499,7 @@ static void app_batch(job_t *js, int n) {
     batch_failed = 0;
     db_batch_begin();
     for (int i = 0; i < n; i++) if (js[i].kind && !js[i].is_write) exec_read(&js[i]);
+    if (sqlite3_get_autocommit(db)) batch_failed = 1;     /* no transaction left to write in */
     for (int i = 0; i < n && !batch_failed; i++)
       if (js[i].kind && js[i].is_write) {
         exec_event(&js[i]);
