@@ -88,6 +88,11 @@ A synchronised event is the array
 4 and 6, which never carry a report's text or location. Responders of the region also receive
 reports and safety statuses.
 
+## Build your own server on it
+
+[docs/REUSING.md](docs/REUSING.md) explains how the Lean specification, the C generator and the
+runtime fit together, with a worked example of adding a route.
+
 ## Layout
 
 ```
@@ -97,7 +102,7 @@ runtime/   application-independent C: transport, HTTP, JSON, tokens, buffers, SQ
 tools/     mina-admin: offline tokens and synthetic data
 tests/     unit, contract and seed tests, a kernel probe
 bench/     load generator and single-machine benchmark runner
-docs/      architecture, plan, measurements
+docs/      architecture, guide to reusing the Lean pipeline, plan, measurements
 ```
 
 ## Benchmarks
