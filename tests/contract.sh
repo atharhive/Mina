@@ -32,7 +32,9 @@ MINA_DB="$TMP/empty.db" MINA_SECRET="$SECRET" MINA_PORT="$PORT" timeout 5 "$SERV
 sqlite3 "$TMP/mina.db" <"$ROOT/gen/schema.sql" || { echo "cannot apply gen/schema.sql"; exit 1; }
 MINA_DB="$TMP/mina.db" MINA_SECRET="$SECRET" \
   MINA_HOST=127.0.0.1 MINA_PORT="$PORT" "$SERVER" >"$TMP/server.log" 2>&1 & PID=$!
-for _ in $(seq 100); do curl -sf -m 1 -o /dev/null "$BASE/v1/health" && break; sleep 0.1; done
+up=
+for _ in $(seq 100); do curl -sf -m 1 -o /dev/null "$BASE/v1/health" && { up=1; break; }; kill -0 "$PID" 2>/dev/null || break; sleep 0.1; done
+[ -n "$up" ] || { echo "the server did not start:"; cat "$TMP/server.log"; exit 1; }
 
 # req <method> <path> [token] [json body]  ->  STATUS, BODY, CTYPE
 req() {
