@@ -1,8 +1,10 @@
 #include "rt.h"
 
-/* HS256 JWT verification: SHA-256 (FIPS 180-4), HMAC with the key pads absorbed once at
- * startup (the key is fixed for the process; every token is still fully verified), base64url,
- * and claim checks. */
+/* HS256 JWTs: SHA-256 (FIPS 180-4), HMAC with the key pads absorbed once at startup (the key
+ * is fixed for the process; every token is still fully verified), base64url, claim checks and
+ * signing. Claims: sub (positive integer string), role (1..255), rg (optional "r,r,..." list
+ * of regions 1..65535), exp. What a role or region permits is decided by the application. */
+#include <stdio.h>
 
 typedef struct { u32 h[8]; } sha256_state;
 
@@ -102,11 +104,57 @@ static int b64url_decode(const u8 *s, u32 n, u8 *out, u32 cap) {
   return (int)o;
 }
 
+static u32 b64url_encode(const u8 *s, u32 n, u8 *out) {
+  static const char a[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  u32 o = 0, acc = 0, bits = 0;
+  for (u32 i = 0; i < n; i++) {
+    acc = acc << 8 | s[i];
+    bits += 8;
+    while (bits >= 6) { bits -= 6; out[o++] = (u8)a[(acc >> bits) & 63]; }
+  }
+  if (bits) out[o++] = (u8)a[(acc << (6 - bits)) & 63];
+  return o;
+}
+
 enum { JWT_OK = 0, JWT_INVALID = 1, JWT_PAYLOAD = 2 };
+#define JWT_REGIONS 16
+#define JWT_MAX 384          /* no token jwt_sign writes is longer */
 
 typedef struct {
-  i64 uid;
+  i64 uid;                   /* 1 .. 10^15 - 1 */
+  u8 role;
+  u8 nregions;
+  u16 regions[JWT_REGIONS];
 } claims_t;
+
+/* Write a signed token for c, expiring at exp, into out[JWT_MAX]. Returns its length. */
+static u32 jwt_sign(const claims_t *c, i64 exp, u8 *out) {
+  static const char header[] = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
+  char p[256];
+  int pn = snprintf(p, sizeof p, "{\"sub\":\"%lld\",\"role\":%u", c->uid, (unsigned)c->role);
+  for (int i = 0; i < c->nregions; i++)
+    pn += snprintf(p + pn, sizeof p - (size_t)pn, "%s%u", i ? "," : ",\"rg\":\"", (unsigned)c->regions[i]);
+  pn += snprintf(p + pn, sizeof p - (size_t)pn, "%s,\"exp\":%lld}", c->nregions ? "\"" : "", exp);
+  u32 n = b64url_encode((const u8 *)header, sizeof header - 1, out);
+  out[n++] = '.';
+  n += b64url_encode((const u8 *)p, (u32)pn, out + n);
+  u8 mac[32];
+  hmac_sha256(out, n, mac);
+  out[n++] = '.';
+  return n + b64url_encode(mac, 32, out + n);
+}
+
+/* The "rg" claim: comma-separated regions. 0 ok, -1 malformed. */
+static int jwt_regions(const u8 *p, u32 n, claims_t *c) {
+  u32 v = 0, digits = 0;
+  for (u32 i = 0; i <= n; i++) {
+    if (i < n && p[i] >= '0' && p[i] <= '9') { v = v * 10 + (u32)(p[i] - '0'); if (++digits > 5) return -1; continue; }
+    if ((i < n && p[i] != ',') || !digits || !v || v > 65535 || c->nregions == JWT_REGIONS) return -1;
+    c->regions[c->nregions++] = (u16)v;
+    v = digits = 0;
+  }
+  return 0;
+}
 
 /* Verify "Bearer <jwt>" token bytes (without the "Bearer " prefix). */
 static int jwt_verify(const u8 *t, u32 n, i64 now, claims_t *c) {
@@ -130,8 +178,8 @@ static int jwt_verify(const u8 *t, u32 n, i64 now, claims_t *c) {
   if (hm[0].type != JT_STRING || hm[0].escaped || hm[0].v_len != 5 || memcmp(hm[0].v, "HS256", 5)) return JWT_INVALID;
   int pn = b64url_decode(d1 + 1, pl, buf, sizeof buf);
   if (pn < 0) return JWT_INVALID;
-  jmember pm[2] = {{"exp", 3, 0, 0, 0, 0}, {"sub", 3, 0, 0, 0, 0}};
-  if (json_members(buf, (u32)pn, pm, 2) != 0) return JWT_INVALID;
+  jmember pm[4] = {{"exp", 3, 0, 0, 0, 0}, {"sub", 3, 0, 0, 0, 0}, {"role", 4, 0, 0, 0, 0}, {"rg", 2, 0, 0, 0, 0}};
+  if (json_members(buf, (u32)pn, pm, 4) != 0) return JWT_INVALID;
   /* exp: a JSON number; the token is expired when exp <= now (seconds) */
   if (pm[0].type != JT_NUMBER) return JWT_INVALID;
   {
@@ -158,5 +206,17 @@ static int jwt_verify(const u8 *t, u32 n, i64 now, claims_t *c) {
   }
   if (uid <= 0) return JWT_PAYLOAD;
   c->uid = uid;
+  /* role: a JSON integer 1..255 */
+  if (pm[2].type != JT_NUMBER || pm[2].v_len > 3) return JWT_PAYLOAD;
+  u32 role = 0;
+  for (u32 i = 0; i < pm[2].v_len; i++) {
+    u8 ch = pm[2].v[i];
+    if (ch < '0' || ch > '9') return JWT_PAYLOAD;
+    role = role * 10 + (u32)(ch - '0');
+  }
+  if (!role || role > 255) return JWT_PAYLOAD;
+  c->role = (u8)role;
+  c->nregions = 0;
+  if (pm[3].type != JT_NONE && (pm[3].type != JT_STRING || pm[3].escaped || jwt_regions(pm[3].v, pm[3].v_len, c))) return JWT_PAYLOAD;
   return JWT_OK;
 }
