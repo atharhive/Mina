@@ -311,6 +311,27 @@ timeout 5 cat <&3 >/dev/null 2>&1; [ $? != 124 ] && ok "a client that keeps send
 exec 3<&- 3>&-
 req GET /v1/health; [ "$STATUS" = 200 ] && ok "server is healthy afterwards" || bad "health after flood" "$STATUS"
 
+echo "-- idle connections"
+IPORT=$((PORT+2))
+sqlite3 "$TMP/idle.db" <"$ROOT/gen/schema.sql"
+MINA_DB="$TMP/idle.db" MINA_SECRET="$SECRET" MINA_PORT=$IPORT MINA_IDLE_S=2 "$SERVER" >"$TMP/idle.log" 2>&1 & IPID=$!
+for _ in $(seq 100); do curl -sf -m 1 -o /dev/null "http://127.0.0.1:$IPORT/v1/health" && break; sleep 0.1; done
+ms() { echo $(( $(date +%s%N) / 1000000 )); }
+# closes <description>: the server must close fd 3 between 1 and 6 seconds from now
+closes() { local t=$(ms); timeout 8 cat <&3 >/dev/null 2>&1; local rc=$? d=$(( $(ms) - t )); exec 3<&- 3>&-
+  [ $rc != 124 ] && [ $d -ge 900 ] && [ $d -le 6000 ] && ok "$1 (after $d ms)" || bad "$1" "exit $rc after $d ms"; }
+exec 3<>"/dev/tcp/127.0.0.1/$IPORT"; closes "a silent connection is closed"
+exec 3<>"/dev/tcp/127.0.0.1/$IPORT"; printf 'GET /v1/health HTTP/1.1\r\n' >&3
+( for i in $(seq 7); do sleep 1; printf 'X-Slow: %s\r\n' $i >&3 || break; done ) 2>/dev/null & trickle=$!
+closes "a request that trickles in is not waited for"; kill $trickle 2>/dev/null; wait $trickle 2>/dev/null
+exec 3<>"/dev/tcp/127.0.0.1/$IPORT"
+for i in $(seq 5); do printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\n\r\n' >&3; sleep 1; done
+printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3
+got="$(timeout 3 cat <&3 | grep -o 'HTTP/1.1 200' | wc -l)"; exec 3<&- 3>&-
+[ "$got" = 6 ] && ok "a connection in use stays open" || bad "active connection closed" "$got of 6"
+kill $IPID; wait $IPID 2>/dev/null
+MINA_DB="$TMP/idle.db" MINA_SECRET="$SECRET" MINA_PORT=$IPORT MINA_IDLE_S=0 timeout 3 "$SERVER" >/dev/null 2>&1; [ $? = 1 ] && ok "rejects MINA_IDLE_S=0" || bad "MINA_IDLE_S=0 accepted"
+
 echo "-- framing"
 exec 3<>"/dev/tcp/127.0.0.1/$PORT"
 printf 'GET /v1/health HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n' >&3

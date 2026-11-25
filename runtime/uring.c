@@ -36,6 +36,7 @@
 #define OUT_PAUSE (256u * 1024)
 #define OUT_TOTAL (256ull * 1024 * 1024)
 #define IN_MAX 65536u
+#define SWEEP_BUDGET 4096   /* connection slots checked for idleness per iteration */
 
 enum { OP_ACCEPT = 1, OP_RECV, OP_SEND, OP_CLOSE, OP_SHUTDOWN };
 enum { C_FREE = 0, C_OPEN, C_CLOSING };
@@ -45,6 +46,7 @@ typedef struct conn {
   u8 state, recv_armed, sending, close_after, hold, pending, aborted;
   u32 in_len, in_cap;
   u32 out_bytes;          /* answers queued and not yet sent */
+  u32 active;             /* when a request last completed or an answer last went out */
   u8 *in;                 /* bytes of a request that is not complete yet */
   obuf *out_head, *out_tail;
 } conn;
@@ -58,7 +60,7 @@ typedef struct ring {
   struct io_uring_buf_ring *br;
   u16 br_tail;
   u8 *bufs;
-  u32 nslots;
+  u32 nslots, hi;         /* hi: one past the highest slot ever used */
   conn *conns;
   u8 hot;
   u8 accept_armed;
@@ -68,6 +70,8 @@ static ring rings[MAX_RINGS];
 static int nrings;
 static int epfd;
 static i64 now_s;           /* wall clock seconds, refreshed every iteration */
+static u32 mono_s;          /* monotonic seconds, for idleness */
+static u32 idle_limit_s = 120;
 static u64 out_total;       /* out_bytes over all connections */
 #define PEND_MAX (MAX_RINGS * 65536)
 static u32 pend[PEND_MAX];  /* connections to continue parsing after the next batch (each once) */
@@ -242,6 +246,7 @@ static u32 parse_requests(ring *r, u32 slot, const u8 *p, u32 n) {
     req_t rq;
     int k = http_parse(p + used, n - used, &rq);
     if (k == 0) break;
+    c->active = mono_s;
     if (njobs >= MAX_JOBS - 1) { conn_hold(r, slot); break; }
     job_t *j = &jobs[njobs++];
     memset(j, 0, sizeof *j);
@@ -310,6 +315,8 @@ static void handle_cqe(ring *r, struct io_uring_cqe *e) {
       if (c->state != C_FREE) conn_reset(c);
       c->gen++;
       c->state = C_OPEN;
+      c->active = mono_s;
+      if ((u32)res >= r->hi) r->hi = (u32)res + 1;
       arm_recv(r, (u32)res);
     } else if (res != -ECANCELED && res != -EINTR) {
       static time_t last;
@@ -339,6 +346,7 @@ static void handle_cqe(ring *r, struct io_uring_cqe *e) {
     if (c->gen != gen) return;
     obuf *b = c->out_head;
     c->sending = 0;
+    if (res > 0) c->active = mono_s;
     if (b && res > 0 && (u32)res < b->len) {   /* short send: continue with the rest */
       b->data += res;
       b->len -= (u32)res;
@@ -548,6 +556,26 @@ static void stats_tick(void) {
 #define STAT(x) ((void)0)
 #endif
 
+/* Once a second, walk the connection slots (a bounded number per iteration) and drop those
+ * with no completed request and no progress sending for more than idle_limit_s. A request that
+ * trickles in does not count. */
+static void sweep_idle(void) {
+  static u32 ri = MAX_RINGS, slot, started;
+  if (ri >= (u32)nrings) {
+    if (mono_s == started) return;
+    started = mono_s;
+    ri = slot = 0;
+  }
+  for (int budget = SWEEP_BUDGET; budget && ri < (u32)nrings;) {
+    ring *r = &rings[ri];
+    if (slot >= r->hi) { ri++; slot = 0; continue; }
+    conn *c = &r->conns[slot];
+    if (c->state == C_OPEN && mono_s - c->active > idle_limit_s) conn_abort(r, slot);
+    slot++;
+    budget--;
+  }
+}
+
 /* A ring needs an io_uring_enter if it has submissions, deferred completions waiting to run
  * (IORING_SQ_TASKRUN), CQEs not yet reaped, or its eventfd fired. */
 static inline int ring_pending(ring *r) {
@@ -562,6 +590,8 @@ static void transport_run(void) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME_COARSE, &ts);
     now_s = ts.tv_sec;
+    clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
+    mono_s = (u32)ts.tv_sec;
     int got = 0, served = 0;
     STAT(st_iters++);
     for (int i = 0; i < nrings; i++) {
@@ -593,6 +623,7 @@ static void transport_run(void) {
     }
     nrearm = 0;
     for (int i = 0; i < nrings; i++) buf_publish(&rings[i]);
+    sweep_idle();
 #ifdef STATS
     stats_tick();
 #endif
