@@ -11,6 +11,8 @@
  *   wl_first_delay_ms(rng)     delay between the user's arrival and its first request
  *   wl_request(u, rng, buf, cap) -> length of the next request
  *   wl_response(u, rng, status, body, len, &ok) -> think time in ms before the next request
+ *   wl_report()                optional (define WL_HAS_REPORT): print more JSON members, each
+ *                              starting with a comma
  *
  * Latency and throughput are measured over the hold phase only and printed as one JSON line.
  * With source_ips > 0 (loopback targets only) connections are bound to that many addresses
@@ -316,6 +318,10 @@ int main(int argc, char **argv) {
          (unsigned long long)done, open_min, val[0], val[1], val[2], (double)mx / 1000.0,
          (unsigned long long)sent, (unsigned long long)dt, (unsigned long long)eh);
   for (int i = 0; i < NERR; i++) printf("%s\"%s\":%llu", i ? "," : "", err_name[i], (unsigned long long)err[i]);
-  printf("}}\n");
+  printf("}");
+#ifdef WL_HAS_REPORT
+  wl_report();
+#endif
+  printf("}\n");
   return 0;
 }
