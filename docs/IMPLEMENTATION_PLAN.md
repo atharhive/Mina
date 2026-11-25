@@ -11,32 +11,23 @@ a Lean 4 specification, targeting more than 300,000 concurrent virtual users on 
 
 ## Storage
 
-```sql
-events(seq INTEGER PRIMARY KEY,   -- server-assigned, monotone (rowid)
-       eid BLOB NOT NULL UNIQUE,  -- 16-byte client id: idempotency
-       region INTEGER NOT NULL, vis INTEGER NOT NULL,  -- 0 public, 1 responders only
-       kind INTEGER NOT NULL, incident INTEGER, actor INTEGER NOT NULL,
-       ts TEXT NOT NULL, body TEXT CHECK(length(body) <= 280));
-CREATE INDEX events_region_vis ON events(region, vis);   -- ordered by (region, vis, seq)
-incidents(id INTEGER PRIMARY KEY /* seq of SOS_CREATED */, owner, region, category, status, updated_seq);
-```
+Specified in `spec/Mina/Schema.lean`; the SQL is `gen/schema.sql`.
 
-Event kinds: `SOS_CREATED`, `SAFETY_REPORTED` (vis 1); `SOS_ACKNOWLEDGED`, `STATUS_UPDATED`,
-`INCIDENT_RESOLVED` (vis 0, redacted: incident, category, status; no text or location);
-`ALERT_PUBLISHED` (vis 0). A citizen matches the incident id returned for their report
-against the public stream to see its progress.
+- `events`: append-only. `seq` (server-assigned, monotone rowid), `eid` (16-byte client id,
+  unique: idempotency), `region`, `vis` (0 public, 1 responders only), `kind`, `incident`,
+  `category`, `status`, `actor`, `ts`, `at`, `lat`, `lon`, `body`.
+- Index `events_region_vis (region, vis)`, so entries are ordered by `(region, vis, seq)`.
+- `incidents`: `id` (the `seq` of the report), `owner`, `region`, `category`, `status`,
+  `updated_seq`.
+
+Changes from the first plan: `category`, `status`, `at`, `lat` and `lon` were added because the
+reports must carry them; timestamps are integers.
 
 ## API v1
 
-| Route | Notes |
-|---|---|
-| `GET /v1/health` | done |
-| `POST /v1/session` | rate limited; citizen device token. Responder and admin tokens come from an offline tool |
-| `GET /v1/sync?region=R&after=C&limit=N` | N <= 256; `{"next","more","head","events":[...]}`; cursor beyond head: 409 `resync` |
-| `POST /v1/events` | `{"eid","kind",...}`; 201 `{seq,incident}`; retry: 200 with the original and `"duplicate":true` |
-| `GET /v1/incidents/:id` | responders see all; the owner a redacted view |
-| `GET /v1/metrics` | admin token |
-| `GET /*` | precompressed static assets compiled into the binary |
+Implemented as described in the [README](../README.md#api). `GET /v1/metrics` moved to D, with
+the Observatory that reads it. `GET /*` (precompressed static assets compiled into the binary)
+is D.
 
 ## Proof-guided execution
 
@@ -70,7 +61,7 @@ oracle in Lean and differential runs against the SQL path.
 | | Content | Done when |
 |---|---|---|
 | A | Audit, baseline, restructure | baseline measured, health pipeline builds and passes |
-| B | Schema, contract, auth and roles, `mina-admin`, SQL plans, transition table, rate limits, bounded queues, synthetic seed | contract suite and ASan/UBSan build pass |
+| B | Done: schema, contract, auth and roles, `mina-admin`, SQL plans, transition table, rate limits, bounded queues, idle timeout, synthetic seed | contract suite and ASan/UBSan build pass (see BASELINE.md) |
 | C | Model, invariant, plans, sync, transitions; native plans; oracle; differential tests | theorems checked; no mismatch in 10^6 requests; native vs SQL measured |
 | D | Citizen, Command, Observatory; outbox and sync; static assets | bundle sizes and Lighthouse measured; offline create, reconnect, delivered |
 | E | Profile, change one thing, measure, keep or revert (`docs/OPTIMIZATION_LOG.md`); scale to 100K locally, then AWS | results per step; AWS cost approved first |

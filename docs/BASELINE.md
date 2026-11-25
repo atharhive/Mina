@@ -111,3 +111,26 @@ on other hardware, and has not been reproduced here.
 
 The last row only shows that the pipeline and harness work; a health check is not a
 meaningful workload.
+
+## MINA at the end of Milestone B
+
+Same machine, 2026-11-26.
+
+| Check | Result |
+|---|---|
+| `tests/unit.sh` | passes |
+| `tests/contract.sh`, release build | 156 of 156 |
+| `tests/contract.sh`, ASan and UBSan build | 154 of 154, no sanitizer report; the resident-memory check is skipped |
+| `tests/seed.sh`, both builds | pass |
+| A client that does not read 200 answers (23.9 MB) | server resident size grew 1.3 MB; all 200 answers arrived once it read |
+
+Health route only, 10,000 users, 20 s ramp, 60 s hold, one run each, back to back, loopback.
+This checks that the transport changes cost nothing measurable on an idle-heavy load; it says
+nothing about the cost of MINA's own routes, which have not been load tested. The Milestone B
+binary was built before two later input-validation fixes in query parsing and batch writes.
+
+| Build | Requests/s | p50 / p99 ms | Errors | CPU | CPU per request | Memory peak |
+|---|---:|---|---:|---:|---:|---:|
+| End of Milestone A | 1,000 | 0.72 / 1.55 | 0 | 6.5 % | 65 us | 79 MB |
+| End of Milestone B | 1,000 | 0.73 / 1.57 | 0 | 6.6 % | 66 us | 79 MB |
+
