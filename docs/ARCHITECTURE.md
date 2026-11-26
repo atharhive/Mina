@@ -57,11 +57,24 @@ Both apps share one client library (`frontend/shared`): the protocol generated f
 specification, an outbox in IndexedDB, cursor synchronisation, and for responders the incident
 list built from the event stream and the permitted transitions.
 
+The Observatory (`/observatory/`) polls `GET /v1/metrics` with an admin token held in memory,
+derives rates from successive readings, and shows recorded benchmarks and the proved theorems
+separately from the live figures.
+
 | | Citizen | Command |
 |---|---|---|
 | Identity | a session the server issues when first needed | a token from `mina-admin`; signing out erases the device's data |
 | Offline | opens and records reports without a network (service worker) | keeps working while the page is open; actions wait. No service worker yet, so it cannot be reopened offline |
 | Long lists | 50 reports, 20 alerts | rows off screen are not laid out (`content-visibility`) |
+
+## Measurements the server keeps
+
+`runtime/stats.c` holds counters and two histograms (four buckets per power of two), updated by
+plain increments on the request thread; the checkpoint thread writes its three atomically.
+`runtime/metrics.c` formats them with process CPU and memory and the network namespace's TCP
+figures, and the application adds its own (how syncs were answered, refusals, retries).
+`GET /v1/metrics` is for admins. "Batch time" is time spent serving a batch inside the server;
+no network time is included, and per-request latency is not measured by the server.
 
 ## Bounds
 

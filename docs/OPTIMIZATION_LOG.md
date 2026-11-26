@@ -30,4 +30,5 @@ or sorts under the bundled SQLite.
 | 50,000 | 65.0 % / 19.5 % | 130 / 39 us | 42.5 / 1.63 ms |
 | 100,000 | 99.9 % (saturated) / 28.4 % | 138 / 28 us | 6,095 / 1.60 ms |
 
-Kept.
+Kept. (Single runs; run-to-run variation of up to about 20 % in CPU figures, measured later, is
+far smaller than this change.)

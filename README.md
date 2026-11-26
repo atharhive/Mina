@@ -10,8 +10,9 @@ B-tree plans that are proved in Lean to equal the reference SQL, with differenti
 C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
-TLS exists yet. The server serves the citizen app (`/`) and the responder dashboard (`/command/`) itself;
-offline features need HTTPS anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
+TLS exists yet. The server serves the citizen app (`/`), the responder dashboard (`/command/`) and an
+engineering dashboard (`/observatory/`) itself; offline features need HTTPS anywhere but on
+`localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
 [docs/PENDING.md](docs/PENDING.md).
 
 MINA is not a replacement for official emergency services.
@@ -78,6 +79,7 @@ All bodies are JSON. Every route except health and session needs `Authorization:
 | `POST /v1/events` | 201 `{"seq","incident"}`; a retry: 200 with the same and `"duplicate":true` |
 | `GET /v1/sync?region=R&after=C&limit=N` | `{"head","events","next","more"}`; `N` up to 256; 409 `resync` if `C > head` |
 | `GET /v1/incidents/:id` | responders: summary and report; the reporter: summary |
+| `GET /v1/metrics` | admins only: counters and histograms of the server |
 
 A submission is `{"eid": 32 lowercase hex digits chosen by the client, "kind": k, ...}`:
 
@@ -112,14 +114,16 @@ Needs Node 22 and pnpm; the end-to-end test also needs Google Chrome.
 cd frontend && pnpm install
 pnpm test                      # outbox, sync and incident list, including a run against the server
 pnpm --dir citizen dev         # development server; proxies /v1 to 127.0.0.1:8080
-cd .. && ./build.sh web        # compile both apps into bin/mina-server
+cd .. && ./build.sh web        # compile the three apps into bin/mina-server
 cd frontend && pnpm --dir citizen e2e    # report offline, reconnect, delivered, resolved
 pnpm --dir command e2e                   # sign in, work through incidents, publish an alert
+pnpm --dir observatory e2e               # live measurements apart from recorded ones
 ```
 
 With the `web` build, open `http://127.0.0.1:8080` to report, and
 `http://127.0.0.1:8080/command/` to respond; the dashboard asks for a token from
-`bin/mina-admin token --sub 1 --role responder --regions 1`. Browsers allow service workers and location
+`bin/mina-admin token --sub 1 --role responder --regions 1`. The Observatory at
+`/observatory/` takes an admin token (`--role admin`). Browsers allow service workers and location
 only on `localhost` or over HTTPS, so on a phone the app needs a TLS proxy in front of the server.
 
 ## Layout
@@ -131,7 +135,7 @@ runtime/   application-independent C: transport, HTTP, JSON, tokens, buffers, SQ
 tools/     mina-admin: offline tokens and synthetic data
 tests/     unit, contract and seed tests, a kernel probe
 bench/     load generator and single-machine benchmark runner
-frontend/  shared sync engine, the citizen app and the responder dashboard
+frontend/  shared sync engine, the citizen app, the responder dashboard and the Observatory
 docs/      architecture, proofs, guide to reusing the Lean pipeline, plan, measurements
 ```
 

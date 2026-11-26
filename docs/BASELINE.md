@@ -151,8 +151,11 @@ Reading these numbers:
 
 - The step from `c75adc8` to `5b30529` is one fix, see
   [OPTIMIZATION_LOG.md](OPTIMIZATION_LOG.md).
-- Native sync plans save about 10 % of server CPU per request in this mix at 100,000 users (one
-  run each). Most server time is in the kernel (about two thirds).
+- At 100,000 users the run with SQL forced used 31.7 % CPU and the native run 28.4 %, one run
+  each. Repeat runs of one build on this machine have differed by up to 14 % (see below), so
+  these two runs do **not** establish that native reads change the server's total CPU use.
+  Settling it needs alternating repeated runs. Most server time is in the kernel (about two
+  thirds).
 - Loopback charges part of the receive path to the generator, this core is faster than a small
   cloud vCPU, and an idle server process left running on this machine used about 2 % of the
   sibling hardware thread during all of these runs.
@@ -186,6 +189,30 @@ applications' browser tests pass.
 Decision (2026-11-26): React is kept, 5 KB over the budget. The difference costs a first visit
 only, since the service worker then holds the application; at 50 kbit/s, 61 KB is about 10 s.
 Revisit if the bundle grows.
+
+## Cost of the server's counters, and run-to-run variation
+
+50,000 users, `bench/mina.sh 50000 40 120 25 native`, builds immediately before (`6a4db4f`) and
+after (`39a4be2`) the `/v1/metrics` counters were added, alternating, 2026-11-26. Every run
+served 5,000 requests/s with no errors.
+
+| Pair | Before: CPU, us per request | After: CPU, us per request |
+|---:|---|---|
+| 1 | 24.8 %, 49.7 | 25.0 %, 50.0 |
+| 2 | 24.8 %, 49.6 | 25.0 %, 49.9 |
+| 3 | 24.0 %, 48.1 | 21.5 %, 43.0 |
+| Mean | 24.5 %, 49.1 | 23.8 %, 47.6 |
+
+The counters have no measurable cost. The same build ranged from 43.0 to 50.0 us per request,
+and the earlier single run of an older build gave 39.0: the laptop's frequency governor and
+other activity move these figures by this much. Treat a single run's CPU figure as accurate to
+perhaps 20 %.
+
+## Observatory
+
+Its JavaScript is 105.6 KB gzip (91,441 bytes brotli); the server binary with all three
+applications is 2.99 MB. `tests/contract.sh` passes 173 of 173 (172 with `MINA_FORCE_SQL=1`,
+which has one check fewer), and the browser tests of all three applications pass.
 
 ## Not measured
 
