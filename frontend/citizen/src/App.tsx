@@ -1,8 +1,8 @@
-import { KIND, LIMITS, SAFETY, displayStatus, type DisplayStatus } from "@mina/shared";
+import { KIND, LIMITS, SAFETY, displayStatus, keepSynchronised, type DisplayStatus, type Link } from "@mina/shared";
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useLive } from "./live";
 import { ReportForm } from "./ReportForm";
-import { db, engine, keepSynchronised, link, watchLink, type Link } from "./store";
+import { connection, db, engine } from "./store";
 import { STATUS_TEXT, time, title } from "./text";
 
 const LINK_TEXT: Record<Link, string> = {
@@ -16,9 +16,9 @@ const TONE: Record<DisplayStatus, string> = {
 };
 
 export function App() {
-  const state = useSyncExternalStore(watchLink, link);
+  const state = useSyncExternalStore(connection.watch, connection.state);
   const region = useLive(async () => ((await db.meta.get("region"))?.value as number | undefined) ?? 0, []);
-  useEffect(() => (region ? keepSynchronised(region) : undefined), [region]);
+  useEffect(() => (region ? keepSynchronised(engine, [region]) : undefined), [region]);
 
   return (
     <div className="mx-auto max-w-xl px-4 pb-10">

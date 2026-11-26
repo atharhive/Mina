@@ -90,3 +90,14 @@ describe("the incident list", () => {
     expect(actionsFor(STATUS.open)[0]!.submission(12)).toEqual({ kind: KIND.sos_acknowledged, incident: 12 });
   });
 });
+
+describe("several areas", () => {
+  it("synchronises every area asked for, also when asked during a run", async () => {
+    const t = setup(() => ({ status: 200, body: { head: 0, next: 0, more: false, events: [] } }));
+    await t.engine.signIn(good);
+    const first = t.engine.run(3);
+    await Promise.all([first, t.engine.run(7), t.engine.run(3, 9)]);
+    const asked = new Set(t.server.calls.map((c) => new URL(c.path, "http://x").searchParams.get("region")));
+    expect([...asked].sort()).toEqual(["3", "7", "9"]);
+  });
+});

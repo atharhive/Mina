@@ -15,7 +15,7 @@ const eventId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b)
 export class SyncEngine {
   private flushing: Promise<void> | undefined;
   private running: Promise<void> | undefined;
-  private again = false;
+  private readonly wanted = new Set<number>();
 
   constructor(private readonly db: MinaDb, private readonly api: MinaApi,
     private readonly clock: Clock = { now: Date.now, random: Math.random }, private readonly options: Options = {}) {}
@@ -40,20 +40,22 @@ export class SyncEngine {
     return item;
   }
 
-  /** Send what is waiting, then fetch what is new for the region. Only one run is active at a
-   * time; a call during a run makes it go round once more. */
-  run(region: number): Promise<void> {
-    if (this.running) {
-      this.again = true;
-      return this.running;
-    }
-    this.running = (async () => {
-      do {
-        this.again = false;
-        await this.flush();
-        await this.pull(region);
-      } while (this.again);
-    })().finally(() => (this.running = undefined));
+  /** Send what is waiting, then fetch what is new for the regions. Only one run is active at a
+   * time; what is asked during a run is done before it ends. */
+  run(...regions: number[]): Promise<void> {
+    for (const region of regions) this.wanted.add(region);
+    this.running ??= (async () => {
+      try {
+        while (this.wanted.size > 0) {
+          const now = [...this.wanted];
+          this.wanted.clear();
+          await this.flush();
+          for (const region of now) await this.pull(region);
+        }
+      } finally {
+        this.running = undefined;
+      }
+    })();
     return this.running;
   }
 
