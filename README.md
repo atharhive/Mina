@@ -5,7 +5,7 @@ Infrastructure for when infrastructure fails.
 MINA is an offline-first disaster communication system in development: one native C server on
 Linux io_uring and SQLite, with its application layer specified in Lean 4 and generated into C.
 
-**Status: Milestone D.** The server API works end to end, and synchronisation runs on native
+**Status: milestones A to D done, E and F in part.** The server API works end to end, and synchronisation runs on native
 B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
 C against that SQL and against an executable Lean oracle ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
@@ -13,7 +13,8 @@ over loopback, 100,000 virtual users were served on 28 % of one CPU
 TLS exists yet. The server serves the citizen app (`/`), the responder dashboard (`/command/`) and an
 engineering dashboard (`/observatory/`) itself; offline features need HTTPS anywhere but on
 `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
-[docs/PENDING.md](docs/PENDING.md).
+[docs/PENDING.md](docs/PENDING.md). A summary of what was built, measured and proved, and what
+was not, is in [docs/REPORT.md](docs/REPORT.md).
 
 MINA is not a replacement for official emergency services.
 
