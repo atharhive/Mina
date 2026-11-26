@@ -177,3 +177,33 @@ describe("backoff", () => {
     expect(backoffMs(30, () => 0)).toBe(30_000);
   });
 });
+
+describe("reconnecting", () => {
+  it("sends at once when asked, instead of waiting out the backoff", async () => {
+    let down = true;
+    const t = setup((c) => (down ? "offline" : c.path === "/v1/session" ? session : { status: 201, body: { seq: 1, incident: 1 } }));
+    await t.engine.submit(sos);
+    for (let i = 0; i < 6; i++) { await t.engine.flush(); t.advance(60_000); }
+    down = false;
+    t.advance(-60_000);                                    // the next retry is not due yet
+    await t.engine.retryNow();
+    await t.engine.flush();
+    expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered" }]);
+  });
+
+  it("never runs two synchronisations at once, and runs again for work added meanwhile", async () => {
+    let active = 0, most = 0;
+    const t = setup((c) => {
+      if (c.path === "/v1/session") return session;
+      return c.path.startsWith("/v1/sync") ? page([], 0, false) : { status: 201, body: { seq: 1, incident: 1 } };
+    });
+    const pull = t.engine.pull.bind(t.engine);
+    t.engine.pull = async (region: number) => { most = Math.max(most, ++active); await new Promise((r) => setTimeout(r, 5)); await pull(region); active--; };
+    const first = t.engine.run(1);
+    await new Promise((r) => setTimeout(r, 1));
+    await t.engine.submit(sos);
+    await Promise.all([first, t.engine.run(1), t.engine.run(1)]);
+    expect(most).toBe(1);
+    expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered" }]);
+  });
+});

@@ -26,3 +26,7 @@ results/
 
 # local assistant instructions
 CLAUDE.md
+
+# browser test output
+test-results/
+playwright-report/

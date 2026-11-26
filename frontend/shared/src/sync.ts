@@ -11,6 +11,8 @@ const eventId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b)
 
 export class SyncEngine {
   private flushing: Promise<void> | undefined;
+  private running: Promise<void> | undefined;
+  private again = false;
 
   constructor(private readonly db: MinaDb, private readonly api: MinaApi,
     private readonly clock: Clock = { now: Date.now, random: Math.random }) {}
@@ -24,10 +26,26 @@ export class SyncEngine {
     return item;
   }
 
-  /** Send what is waiting, then fetch what is new for the region. */
-  async run(region: number): Promise<void> {
-    await this.flush();
-    await this.pull(region);
+  /** Send what is waiting, then fetch what is new for the region. Only one run is active at a
+   * time; a call during a run makes it go round once more. */
+  run(region: number): Promise<void> {
+    if (this.running) {
+      this.again = true;
+      return this.running;
+    }
+    this.running = (async () => {
+      do {
+        this.again = false;
+        await this.flush();
+        await this.pull(region);
+      } while (this.again);
+    })().finally(() => (this.running = undefined));
+    return this.running;
+  }
+
+  /** Make every queued report due now: connectivity has returned or the app was reopened. */
+  async retryNow(): Promise<void> {
+    await this.db.outbox.where("state").equals("queued").modify({ nextAttemptAt: 0 });
   }
 
   /** Send queued reports oldest first. One that cannot be sent yet holds back those after it. */

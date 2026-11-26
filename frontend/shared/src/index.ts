@@ -4,3 +4,4 @@ export * from "./db";
 export * from "./protocol";
 export * from "./status";
 export * from "./sync";
+export { liveQuery } from "dexie";
