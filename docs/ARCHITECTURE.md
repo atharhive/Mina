@@ -98,8 +98,18 @@ second thread with its own connection (`db.c: wal_hook`, `ckpt_main`); the reque
 checkpoints itself only if the log passes 16,384 frames.
 
 A write is answered only after its batch has committed. With `synchronous=NORMAL` a committed
-write survives a process crash (tested, `tests/crash.mjs`) but may be lost on power failure,
-which has not been tested; the choice against `FULL` is still to be measured.
+write survives a process crash (tested, `tests/crash.mjs`) but may be lost on power failure.
+`MINA_SYNC=full` syncs at every commit instead (traced in `tests/durability.sh`, measured in
+BASELINE.md); real power loss has not been tested with either.
+
+## Backup and restore
+
+`tools/backup.sh` takes one consistent snapshot of a live database with `VACUUM INTO`, which
+neither blocks the writer nor starts over when it writes. `tools/restore.sh` refuses while any
+process has the database open, moves the old database and its log aside, and inserts one marker
+row (kind 0, restricted) 1,000,000,000 sequence numbers ahead. Without that, new events would
+reuse numbers that clients had already read past, and cursor synchronisation would skip them:
+`no_skip` assumes numbers are never reused.
 
 ## Native read plans
 
@@ -132,4 +142,5 @@ and the role codes from `domain.h`.
 | Anyone with a token can read any public stream | Alerts and redacted updates are public | by design |
 | Chunked request bodies are rejected | Clients must send `Content-Length` | documented |
 | Parsers fuzzed by random mutation only, without coverage guidance | Defects on rare paths may remain | F: coverage-guided fuzzing when clang is available |
+| Restoring a backup loses what came after it, and clients do not resend it | A delivered report can silently disappear | later: a database generation in sync answers, so that clients resend what the restored server no longer has |
 | One writer process, one server | No redundancy, no backups yet | documented; backups in F |

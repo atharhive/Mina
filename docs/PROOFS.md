@@ -49,7 +49,8 @@ the runtime or SQLite are correct.
    turn off every plan and remembered value derived here.
 5. **Visibility in order.** Sequence numbers are assigned inside the writing transaction and
    rows are never updated or deleted, so events become visible in sequence order. `no_skip`
-   depends on this.
+   depends on this. Restoring a backup would break it by reusing numbers; `tools/restore.sh`
+   jumps ahead of them, which keeps the store ordered with a gap.
 6. **Generation.** The C transition and validation tables are printed from `Mina.Domain` by a
    generator that is not itself proved.
 

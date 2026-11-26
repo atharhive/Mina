@@ -37,6 +37,8 @@ tests/diff.sh           # native read plans against the reference SQL
 tests/plans.sh          # no statement scans or sorts
 tests/assets.sh         # serving a web application from memory
 node tests/crash.mjs    # kill the server under load, check nothing acknowledged is lost
+tests/backup.sh         # back up while writing, restore safely
+tests/durability.sh     # what MINA_SYNC syncs (needs strace)
 tests/fuzz.sh 60        # fuzz the parsers under sanitizers
 node tests/netfuzz.mjs  # fuzz the transport (after ./build.sh sanitize)
 bench/micro.sh          # their cost, in process
@@ -67,6 +69,7 @@ bin/mina-admin token --sub 1 --role responder --regions 1,2          # responder
 | `MINA_PORT` | `8080` | |
 | `MINA_IDLE_S` | `120` | seconds a connection may go without a request or progress |
 | `MINA_FORCE_SQL` | unset | answer reads with the reference SQL instead of the native plans |
+| `MINA_SYNC` | `normal` | `full` syncs at every commit, so acknowledged writes survive power loss, at some 6 ms of latency here |
 
 After changing `spec/`, regenerate the checked-in copies with
 `(cd spec && lake exe derive ../gen)`.
@@ -108,6 +111,18 @@ reports and safety statuses.
 
 [docs/REUSING.md](docs/REUSING.md) explains how the Lean specification, the C generator and the
 runtime fit together, with a worked example of adding a route.
+
+## Backup and restore
+
+```bash
+tools/backup.sh mina.db backups/mina-$(date +%F-%H%M).db      # while the server runs
+tools/restore.sh backups/<file> mina.db                       # with the server stopped
+```
+
+A restore keeps the replaced database aside and moves sequence numbers forward, so that clients
+that had read past the backup still receive what comes next. **Events accepted after the backup
+are lost, and phones that showed them as delivered do not send them again.** Back up often, and
+copy backups off the machine.
 
 ## Web app
 

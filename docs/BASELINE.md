@@ -203,10 +203,11 @@ served 5,000 requests/s with no errors.
 | 3 | 24.0 %, 48.1 | 21.5 %, 43.0 |
 | Mean | 24.5 %, 49.1 | 23.8 %, 47.6 |
 
-The counters have no measurable cost. The same build ranged from 43.0 to 50.0 us per request,
-and the earlier single run of an older build gave 39.0: the laptop's frequency governor and
-other activity move these figures by this much. Treat a single run's CPU figure as accurate to
-perhaps 20 %.
+The counters have no measurable cost. The same build ranged from 43.0 to 50.0 us per request.
+Between sessions the spread is far larger: one configuration measured 19.9 % CPU in one session
+and 31 to 32 % in another half an hour later (see below). The laptop's frequency governor and
+other activity cause this. **A single run's CPU figure on this machine can be off by half or
+more; compare only runs alternated within one session.**
 
 ## Observatory
 
@@ -273,6 +274,45 @@ the operating system kept running. Power loss has not been tested, and with
 
 The fuzzer mutates seed requests without coverage guidance (clang is not installed), so it
 explores less deeply than libFuzzer or AFL would.
+
+## Durability setting
+
+50,000 users, 20 % of citizen requests are new emergency reports (about 1,500 new events/s),
+`MINA_SYNC=normal` and `full` alternating, three pairs in one session, 2026-11-26. All runs:
+5,000 requests/s served, no errors, every acknowledged event in the database.
+
+| | `normal` | `full` |
+|---|---|---|
+| Median latency, all requests | 0.80 to 0.81 ms | 6.8 ms |
+| 99th percentile | 1.84 to 1.89 ms | 13.7 to 14.7 ms |
+| Worst | 9.1 to 10.4 ms | 20.5 to 21.9 ms |
+| Server CPU | 31.0 to 32.0 % | 30.2 to 30.3 % |
+
+`full` syncs the log at every commit (`tests/durability.sh`). Reads wait behind that sync too,
+because one thread serves everything. It costs latency, not CPU or throughput at this load; on
+another disk the figures will differ. The default stays `normal`; choose `full` where power loss
+matters more than about 6 ms.
+
+## Crisis workloads
+
+`bench/mina.sh` with its crisis profiles, `normal` durability, one run each, 2026-11-26. Raw
+rows: `bench/reports/2026-11-26-crisis-and-durability.jsonl`.
+
+| Scenario | Users | Setting | Requests/s | p99 / worst | CPU | Notes |
+|---|---:|---|---:|---|---:|---|
+| Spike | 100,000 | all connect within 5 s | 10,076 | 1.41 / 5.8 ms | 33.4 % | every connection opened; 438 MB |
+| Emergency surge | 50,000 | 40 % of citizen requests are new reports | 5,014 | 1.98 / 6.9 ms | 33.0 % | 257,972 new events acknowledged and stored; 342 MB |
+| Retry storm | 50,000 | 60 % retries | 5,003 | 1.68 / 5.6 ms | 28.3 % | 115,723 retries answered as duplicates; 43,110 new events |
+| Mass reconnection | 20,000 | each 100,000 events behind | 4,285 | 1.98 / 4.9 ms | 23.7 % | 15.7 million events delivered, about 780 per device |
+
+In all eleven runs of both tables: no errors, no unexpected answer, the number of new events in
+the database equal to the number acknowledged, and an intact database. The load generator runs
+on the same machine, over loopback; a real reconnection arrives over slow links, which costs the
+server more memory than this shows.
+
+Under heavy writing the background checkpoint sometimes falls behind and the request thread
+checkpoints itself, which stalls it for one sync: 1 to 4 such messages per run at 20 % reports,
+6 at 40 %. A candidate for Milestone E.
 
 ## Not measured
 
