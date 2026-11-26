@@ -303,19 +303,19 @@ int main(int argc, char **argv) {
     if (th[k].max_us > mx) mx = th[k].max_us;
     open_min += th[k].open_min_hold > 0 ? th[k].open_min_hold : 0;
   }
-  double pct[3] = {0.50, 0.95, 0.99}, val[3] = {0};
+  double pct[4] = {0.50, 0.95, 0.99, 0.999}, val[4] = {0};
   u64 acc = 0;
-  for (int i = 0, p = 0; i < NHIST && p < 3; i++) {
+  for (int i = 0, p = 0; i < NHIST && p < 4; i++) {
     acc += hist[i];
-    while (p < 3 && done && (double)acc >= pct[p] * (double)done) val[p++] = (double)hist_val((u32)i) / 1000.0;
+    while (p < 4 && done && (double)acc >= pct[p] * (double)done) val[p++] = (double)hist_val((u32)i) / 1000.0;
   }
   double hs = hold_ms / 1000;
   printf("{\"users\":%d,\"ramp_s\":%.0f,\"hold_s\":%.0f,\"rampdown_s\":%.0f,\"nominal_rps\":%.0f,"
          "\"sent_rps\":%.0f,\"achieved_rps\":%.0f,\"requests_in_hold\":%llu,\"open_conns_min_in_hold\":%ld,"
-         "\"p50_ms\":%.3f,\"p95_ms\":%.3f,\"p99_ms\":%.3f,\"max_ms\":%.3f,"
+         "\"p50_ms\":%.3f,\"p95_ms\":%.3f,\"p99_ms\":%.3f,\"p999_ms\":%.3f,\"max_ms\":%.3f,"
          "\"requests_total\":%llu,\"responses_total\":%llu,\"errors_in_hold\":%llu,\"errors\":{",
          nusers, ramp_ms / 1000, hs, down_ms / 1000, nusers * WL_NOMINAL_RPS, (double)due / hs, (double)done / hs,
-         (unsigned long long)done, open_min, val[0], val[1], val[2], (double)mx / 1000.0,
+         (unsigned long long)done, open_min, val[0], val[1], val[2], val[3], (double)mx / 1000.0,
          (unsigned long long)sent, (unsigned long long)dt, (unsigned long long)eh);
   for (int i = 0; i < NERR; i++) printf("%s\"%s\":%llu", i ? "," : "", err_name[i], (unsigned long long)err[i]);
   printf("}");

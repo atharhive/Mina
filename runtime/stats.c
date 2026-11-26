@@ -26,7 +26,7 @@ static struct {
   u32 open;
   histogram batch_us;                /* time to serve a batch, counted once for each job in it */
   /* database */
-  u64 commits, rollbacks, checkpoints_inline;
+  u64 commits, rollbacks, checkpoints_inline, checkpoint_inline_us_max;
   u64 checkpoints, checkpoint_frames, checkpoint_us_last;     /* the checkpoint thread */
 } stats;
 

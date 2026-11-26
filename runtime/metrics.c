@@ -58,7 +58,8 @@ static void metrics_runtime(out_t *o) {
   metric(o, "checkpoints", __atomic_load_n(&stats.checkpoints, __ATOMIC_RELAXED), 1);
   metric(o, "checkpoint_frames", __atomic_load_n(&stats.checkpoint_frames, __ATOMIC_RELAXED), 1);
   metric(o, "checkpoint_us_last", __atomic_load_n(&stats.checkpoint_us_last, __ATOMIC_RELAXED), 1);
-  metric(o, "checkpoints_inline", stats.checkpoints_inline, 0);
+  metric(o, "checkpoints_inline", stats.checkpoints_inline, 1);
+  metric(o, "checkpoint_inline_us_max", stats.checkpoint_inline_us_max, 0);
   metric_text(o, "},\"process\":{");
   struct rusage u;
   getrusage(RUSAGE_SELF, &u);

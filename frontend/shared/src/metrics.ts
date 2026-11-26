@@ -6,7 +6,7 @@ export interface Metrics {
     "uptime_s" | "rings" | "connection_slots" | "connections_open" | "accepted" | "closed" | "idle_dropped" | "requests" | "jobs" | "batches" |
     "batch_jobs_max" | "loop_iterations" | "completions" | "receive_buffers_exhausted" | "queued_bytes" | "bytes_out" |
     "status_2xx" | "status_3xx" | "status_4xx" | "status_5xx", number> & { batch_us: Histogram };
-  db: Record<"commits" | "rollbacks" | "wal_frames" | "checkpoints" | "checkpoint_frames" | "checkpoint_us_last" | "checkpoints_inline", number>;
+  db: Record<"commits" | "rollbacks" | "wal_frames" | "checkpoints" | "checkpoint_frames" | "checkpoint_us_last" | "checkpoints_inline" | "checkpoint_inline_us_max", number>;
   process: Record<"cpu_user_us" | "cpu_system_us" | "rss_bytes" | "tcp_sockets_namespace" | "tcp_memory_bytes_namespace", number>;
   app: Record<
     "native_on" | "head_seq" | "events_stored" | "duplicates" | "transitions_refused" | "rate_limited" | "auth_refused" | "sessions_issued" |

@@ -160,11 +160,18 @@ static void db_batch_begin(void) {
 static void db_wal_bound(void) {
   if (wal_frames < WAL_HIGH || __atomic_load_n(&ckpt_wanted, __ATOMIC_ACQUIRE)) return;
   int nlog = 0, ndone = 0;
+  u64 start = clock_ns();
   int rc = sqlite3_wal_checkpoint_v2(db, "main", SQLITE_CHECKPOINT_PASSIVE, &nlog, &ndone);
+  u64 took = (clock_ns() - start) / 1000;
   if (rc == SQLITE_OK) wal_frames = 0;
   stats.checkpoints_inline++;
+  if (took > stats.checkpoint_inline_us_max) stats.checkpoint_inline_us_max = took;
   static i64 last;
-  if (time(0) != last) { last = time(0); fprintf(stderr, "wal: %d frames, checkpointed in the request thread (%s)\n", nlog, rc == SQLITE_OK ? "ok" : sqlite3_errmsg(db)); }
+  if (time(0) != last) {
+    last = time(0);
+    fprintf(stderr, "wal: %d frames, checkpointed in the request thread (%s, %llu us)\n", nlog,
+            rc == SQLITE_OK ? "ok" : sqlite3_errmsg(db), took);
+  }
 }
 
 /* Returns 0 if the batch committed. */
