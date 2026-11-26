@@ -101,3 +101,29 @@ describe("several areas", () => {
     expect([...asked].sort()).toEqual(["3", "7", "9"]);
   });
 });
+
+describe("a long backlog", () => {
+  it("is fetched to its end in one run, still sending in between", async () => {
+    const pages = 50;
+    const t = setup((c) => {
+      if (c.path === "/v1/events") return { status: 201, body: { seq: 999, incident: 1 } };
+      const after = Number(new URL(c.path, "http://x").searchParams.get("after"));
+      return { status: 200, body: { head: pages, next: after + 1, more: after + 1 < pages, events: [] } };
+    });
+    await t.engine.signIn(good);
+    const running = t.engine.run(3);
+    await t.engine.submit({ kind: KIND.sos_acknowledged, incident: 1 });
+    await running;
+    expect(await t.engine.cursor(3)).toBe(pages);
+    const sent = t.server.calls.findIndex((c) => c.path === "/v1/events");
+    expect(sent).toBeGreaterThanOrEqual(0);
+    expect(sent).toBeLessThan(t.server.calls.length - 1);                // not held until the end
+  });
+  it("stops when the server stops answering", async () => {
+    let calls = 0;
+    const t = setup(() => (++calls > 3 ? "offline" : { status: 200, body: { head: 99, next: calls, more: true, events: [] } }));
+    await t.engine.signIn(good);
+    await t.engine.run(3);
+    expect(calls).toBe(4);
+  });
+});

@@ -8,7 +8,7 @@ export interface Clock { now(): number; random(): number }
 /** "own": a citizen device asks the server for an identity when it needs one. "given": a
  * responder signs in with an issued token, and is signed out if the server refuses it. */
 export interface Options { identity?: "own" | "given"; page?: number }
-const MAX_PAGES = 20;          // per pull; the next run continues from the cursor
+const MAX_PAGES = 20;          // per pull, so that queued reports are not held back by a long backlog
 
 const eventId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -50,7 +50,8 @@ export class SyncEngine {
           const now = [...this.wanted];
           this.wanted.clear();
           await this.flush();
-          for (const region of now) await this.pull(region);
+          // a region with more waiting goes round again, after another chance to send
+          for (const region of now) if (await this.pull(region)) this.wanted.add(region);
         }
       } finally {
         this.running = undefined;
@@ -103,12 +104,13 @@ export class SyncEngine {
   }
 
   /** Fetch the events after the stored cursor. Events and cursor are written in one local
-   * transaction, so the cursor moves only when the events are saved. */
-  async pull(region: number): Promise<void> {
+   * transaction, so the cursor moves only when the events are saved. True if the server has
+   * more to give. */
+  async pull(region: number): Promise<boolean> {
     let restarted = false;
     for (let page = 0; page < MAX_PAGES; page++) {
       const token = await this.token();
-      if (!token) return;
+      if (!token) return false;
       const reply = await this.api.sync(token, region, await this.cursor(region), this.options.page ?? 64);
       if (reply.ok) {
         const { events, next, more } = reply.value;
@@ -116,7 +118,7 @@ export class SyncEngine {
           await this.db.events.bulkPut(events);
           await this.db.meta.put({ key: `cursor:${region}`, value: next });
         });
-        if (!more) return;
+        if (!more) return false;
       } else if (reply.failure === "resync" && !restarted) {
         restarted = true;
         await this.db.transaction("rw", this.db.events, this.db.meta, async () => {
@@ -125,9 +127,10 @@ export class SyncEngine {
         });
       } else {
         if (reply.failure === "auth") await this.db.meta.delete("session");
-        return;
+        return false;
       }
     }
+    return true;
   }
 
   private async token(): Promise<string | undefined> {

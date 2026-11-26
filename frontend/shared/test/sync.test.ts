@@ -198,7 +198,7 @@ describe("reconnecting", () => {
       return c.path.startsWith("/v1/sync") ? page([], 0, false) : { status: 201, body: { seq: 1, incident: 1 } };
     });
     const pull = t.engine.pull.bind(t.engine);
-    t.engine.pull = async (region: number) => { most = Math.max(most, ++active); await new Promise((r) => setTimeout(r, 5)); await pull(region); active--; };
+    t.engine.pull = async (region: number) => { most = Math.max(most, ++active); await new Promise((r) => setTimeout(r, 5)); const more = await pull(region); active--; return more; };
     const first = t.engine.run(1);
     await new Promise((r) => setTimeout(r, 1));
     await t.engine.submit(sos);
