@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #16181b;
+  --color-panel: #1e2125;
+  --color-ink: #e9e6e0;
+  --color-muted: #a3a9b0;
+  --color-line: #353a41;
+  --color-alarm: #ff7a6b;
+  --color-wait: #e8b552;
+  --color-safe: #64d295;
+}
+
+:root { color-scheme: dark; }
+body { background: var(--color-base); color: var(--color-ink); font-family: ui-sans-serif, system-ui, sans-serif; }
+:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 2px; }
+/* off-screen rows of a long list are not laid out or painted */
+.row { content-visibility: auto; contain-intrinsic-size: auto 5rem; }
