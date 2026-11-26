@@ -84,6 +84,14 @@ test("leaves the other applications of the server alone", async ({ page }) => {
   await expect(page.getByLabel("Access token")).toBeVisible();
 });
 
+test("ships the notices of the code inside it", async ({ request }) => {
+  const reply = await request.get("/THIRD-PARTY-LICENSES.txt");
+  expect(reply.status()).toBe(200);
+  const text = await reply.text();
+  for (const part of ["react 19", "react-dom 19", "scheduler 0", "dexie 4", "tailwindcss 4", "Meta Platforms", "Apache License", "Dexie.js",
+    "GNU Affero General Public License", "github.com/atharhive/Mina"]) expect(text).toContain(part);
+});
+
 test("says plainly that it is not an emergency service", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("not a replacement for official emergency services")).toBeVisible();

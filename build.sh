@@ -45,7 +45,9 @@ case "${1:-}" in
               && pnpm --silent --dir observatory build >/dev/null)
             rm -rf build/web && mkdir -p build/web
             cp -r frontend/citizen/dist/. build/web/ && cp -r frontend/command/dist build/web/command
-            cp -r frontend/observatory/dist build/web/observatory ;;
+            cp -r frontend/observatory/dist build/web/observatory
+            # the licences of the code inside those applications, served with them
+            node tools/third-party-notices.mjs >build/web/THIRD-PARTY-LICENSES.txt ;;
   sanitize) SUF=-san; OPT=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all) ;;
   *) echo "usage: ./build.sh [web|sanitize]" >&2; exit 2 ;;
 esac
