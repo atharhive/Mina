@@ -13,5 +13,4 @@ is done.
 | Testing on real phones and slow mobile networks | no test devices on a trusted connection | HTTPS (above) and a phone |
 | Geographic basemap in the responder view | map tiles must come from somewhere, and a public tile service would break offline use and the same-origin content policy | a choice of tile data to host with the server (for example a regional extract), with its licence and size |
 | Translations | no target languages chosen, and no one to check the wording of emergency messages | the languages, and a speaker of each |
-| Power-loss durability of acknowledged writes | needs a machine whose power can be cut safely | a disposable machine or a virtual machine with a controllable disk cache |
 | Review by someone other than the author, including security | all code and tests so far come from one author | a human reviewer, or an externally run review |

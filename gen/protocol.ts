@@ -42,6 +42,16 @@ export const KIND_RULES: Readonly<Record<number, KindRule>> = {
   6: { roles: [2, 3], required: ["region", "body"], optional: ["at"], statusRange: [0, 0] },
 };
 
+/** Every permitted change of an incident (Mina.Domain.transitions). */
+export const TRANSITIONS: ReadonlyArray<{ kind: number; source: number; target: number }> = [
+  { kind: 2, source: 1, target: 2 },
+  { kind: 3, source: 2, target: 3 },
+  { kind: 3, source: 3, target: 2 },
+  { kind: 4, source: 1, target: 4 },
+  { kind: 4, source: 2, target: 4 },
+  { kind: 4, source: 3, target: 4 },
+];
+
 /** A synchronised event is an array with these members, in this order. */
 export const EVENT_COLUMNS = ["seq", "kind", "ts", "incident", "category", "status", "body", "lat", "lon", "at"] as const;
 

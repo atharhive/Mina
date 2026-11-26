@@ -40,6 +40,11 @@ def emitProtocolTs : String :=
   "\nexport type Field = " ++ " | ".intercalate (Field.all.map (quote ·.name)) ++ ";\n" ++
   "export interface KindRule { roles: readonly number[]; required: readonly Field[]; optional: readonly Field[]; statusRange: readonly [number, number] }\n" ++
   "export const KIND_RULES: Readonly<Record<number, KindRule>> = {\n" ++ String.join (Kind.all.map kindRule) ++ "};\n\n" ++
+  "/** Every permitted change of an incident (Mina.Domain.transitions). */\n" ++
+  "export const TRANSITIONS: ReadonlyArray<{ kind: number; source: number; target: number }> = [\n" ++
+  String.join (transitions.map fun t =>
+    s!"  \{ kind: {t.kind.code}, source: {t.source.code}, target: {t.target.code} },\n") ++
+  "];\n\n" ++
   "/** A synchronised event is an array with these members, in this order. */\n" ++
   s!"export const EVENT_COLUMNS = {list ((Query.eventColumns.splitOn ", ").map quote)} as const;\n\n" ++
   "export const LIMITS = {\n" ++
