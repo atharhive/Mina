@@ -56,7 +56,7 @@ beside the SQL.
 | B | Done: schema, contract, auth and roles, `mina-admin`, SQL plans, transition table, rate limits, bounded queues, idle timeout, synthetic seed | contract suite and ASan/UBSan build pass (see BASELINE.md) |
 | C | Done except the Lean oracle: model, invariant, plans, sync, transitions; native plans; differential tests | theorems checked; no mismatch in 10^6 requests; native vs SQL measured (see BASELINE.md) |
 | D | Citizen, Command, Observatory; outbox and sync; static assets | bundle sizes and Lighthouse measured; offline create, reconnect, delivered |
-| E | Profile, change one thing, measure, keep or revert (`docs/OPTIMIZATION_LOG.md`); scale to 100K locally, then AWS | results per step; AWS cost approved first |
+| E | Started: MINA workload to 100K locally, one fix (`docs/OPTIMIZATION_LOG.md`). Profile, change one thing, measure, keep or revert; then AWS | results per step; AWS cost approved first |
 | F | Crisis workloads, `kill -9` recovery, fuzzing, secure (TLS) category | no lost acknowledged event, no duplicate |
 | G | Final report, then stop | publication approved separately |
 

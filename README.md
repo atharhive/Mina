@@ -7,9 +7,10 @@ Linux io_uring and SQLite, with its application layer specified in Lean 4 and ge
 
 **Status: Milestone C.** The server API works end to end, and synchronisation runs on native
 B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
-C against that SQL ([what is and is not proved](docs/PROOFS.md),
-[measurements](docs/BASELINE.md)). No frontend or TLS exists yet, and MINA's routes have not
-been load tested. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
+over loopback, 100,000 virtual users were served on 28 % of one CPU
+([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
+TLS exists yet. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 MINA is not a replacement for official emergency services.
 
@@ -30,6 +31,7 @@ tests/contract.sh       # exact responses, roles, transitions, sync, limits, fra
 tests/seed.sh           # the synthetic data generator
 tests/proofs.sh         # the theorems and the axioms they use
 tests/diff.sh           # native read plans against the reference SQL
+tests/plans.sh          # no statement scans or sorts
 bench/micro.sh          # their cost, in process
 
 ./build.sh sanitize     # bin/mina-server-san, bin/mina-admin-san
@@ -113,6 +115,8 @@ docs/      architecture, proofs, guide to reusing the Lean pipeline, plan, measu
 ## Benchmarks
 
 ```bash
+bench/mina.sh 10000 20 90 20          # MINA workload on a fresh seeded database
+
 cc -O2 -pthread -DWORKLOAD='"workload_health.h"' -Ibench -o bin/loadgen bench/loadgen.c
 MINA_DB=mina.db MINA_SECRET="$(openssl rand -hex 32)" MINA_PORT=3000 \
   bench/run.sh bin/loadgen 10000 20 60 25 -- bin/mina-server

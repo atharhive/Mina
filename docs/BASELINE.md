@@ -121,8 +121,7 @@ Reading these numbers:
   index does not cover the columns, plus serialization. Which dominates has not been profiled.
 - An up-to-date answer needs no B-tree access (`head_empty`); the 20 ns is building the
   response.
-- How much this saves per request on the server is unknown until MINA's own routes are load
-  tested, and depends on how often clients are already up to date.
+- The saving for the server as a whole is much smaller, see the load results below.
 
 ## MINA workload under load
 
@@ -159,6 +158,8 @@ Reading these numbers:
   sibling hardware thread during all of these runs.
 - Straight-line extrapolation to 300,000 users gives about 85 % of this core and 1.3 GB. That is
   arithmetic, not a measurement, and leaves little margin.
+- Not measured: any step above 100,000 users, a 30-minute stability run, a two-machine run,
+  TLS, or session creation under load.
 
 ## Not measured
 
