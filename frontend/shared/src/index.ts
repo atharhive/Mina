@@ -4,6 +4,7 @@ export * from "./db";
 export * from "./identity";
 export * from "./incidents";
 export * from "./link";
+export * from "./metrics";
 export * from "./schedule";
 export * from "./protocol";
 export * from "./status";

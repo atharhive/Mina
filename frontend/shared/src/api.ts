@@ -1,3 +1,4 @@
+import type { Metrics } from "./metrics";
 import { decodeEvent, type StoredEvent, type Submission } from "./protocol";
 
 /** Why a request did not succeed, in terms of what to do next. */
@@ -27,6 +28,10 @@ export class MinaApi {
     const init = { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(submission) };
     return this.call("/v1/events", init, [201, 200], (b) =>
       Number.isInteger(b.seq) ? { seq: b.seq, incident: b.incident ?? null, duplicate: b.duplicate === true } : null);
+  }
+
+  metrics(token: string): Promise<Result<Metrics>> {
+    return this.call("/v1/metrics", { headers: { authorization: `Bearer ${token}` } }, 200, (b) => (b.runtime && b.db && b.process && b.app ? (b as Metrics) : null));
   }
 
   sync(token: string, region: number, after: number, limit: number): Promise<Result<Page>> {
