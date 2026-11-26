@@ -16,6 +16,8 @@ export class SyncEngine {
   private flushing: Promise<void> | undefined;
   private running: Promise<void> | undefined;
   private readonly wanted = new Set<number>();
+  /** Set once a run has started over, so that it happens at most once per run. */
+  private startedOver = false;
 
   constructor(private readonly db: MinaDb, private readonly api: MinaApi,
     private readonly clock: Clock = { now: Date.now, random: Math.random }, private readonly options: Options = {}) {}
@@ -45,6 +47,7 @@ export class SyncEngine {
   run(...regions: number[]): Promise<void> {
     for (const region of regions) this.wanted.add(region);
     this.running ??= (async () => {
+      this.startedOver = false;
       try {
         while (this.wanted.size > 0) {
           const now = [...this.wanted];
@@ -107,30 +110,49 @@ export class SyncEngine {
    * transaction, so the cursor moves only when the events are saved. True if the server has
    * more to give. */
   async pull(region: number): Promise<boolean> {
-    let restarted = false;
+    let replaced = false;
     for (let page = 0; page < MAX_PAGES; page++) {
       const token = await this.token();
       if (!token) return false;
       const reply = await this.api.sync(token, region, await this.cursor(region), this.options.page ?? 64);
       if (reply.ok) {
-        const { events, next, more } = reply.value;
+        const { events, next, more, generation } = reply.value;
+        const known = (await this.db.meta.get("generation"))?.value as number | undefined;
+        if (known !== undefined && known !== generation) {
+          // the server's database was replaced: this page answers an out-of-date cursor
+          if (this.startedOver) return false;
+          await this.startOver(generation);
+          replaced = true;
+          continue;
+        }
+        if (known === undefined) await this.db.meta.put({ key: "generation", value: generation });
         await this.db.transaction("rw", this.db.events, this.db.meta, async () => {
           await this.db.events.bulkPut(events);
           await this.db.meta.put({ key: `cursor:${region}`, value: next });
         });
-        if (!more) return false;
-      } else if (reply.failure === "resync" && !restarted) {
-        restarted = true;
-        await this.db.transaction("rw", this.db.events, this.db.meta, async () => {
-          await this.db.events.where("region").equals(region).delete();
-          await this.db.meta.delete(`cursor:${region}`);
-        });
+        if (!more) return replaced;             // true: come back, after sending what was queued again
+      } else if (reply.failure === "resync" && !this.startedOver) {
+        await this.startOver();                 // the server has less than this device has seen
+        replaced = true;
       } else {
         if (reply.failure === "auth") await this.db.meta.delete("session");
         return false;
       }
     }
     return true;
+  }
+
+  /** The server may have lost what it once confirmed. Forget what was read, and queue again
+   * everything it had accepted: the event ids are unchanged, so what it still has is answered as
+   * a duplicate and nothing is stored twice. */
+  private async startOver(generation?: number): Promise<void> {
+    this.startedOver = true;
+    await this.db.transaction("rw", this.db.outbox, this.db.events, this.db.meta, async () => {
+      await this.db.events.clear();
+      await this.db.meta.where("key").startsWith("cursor:").delete();
+      if (generation !== undefined) await this.db.meta.put({ key: "generation", value: generation });
+      await this.db.outbox.where("state").equals("delivered").modify({ state: "queued", attempts: 0, nextAttemptAt: 0 });
+    });
   }
 
   private async token(): Promise<string | undefined> {

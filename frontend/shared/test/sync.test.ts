@@ -207,3 +207,74 @@ describe("reconnecting", () => {
     expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered" }]);
   });
 });
+
+describe("a restored server", () => {
+  const stored: Reply = { status: 201, body: { seq: 8, incident: 8 } };
+  function restorable() {
+    let generation = 5;
+    let lost = false;
+    const t = setup((c) => {
+      if (c.path === "/v1/session") return session;
+      if (c.path.startsWith("/v1/sync")) return { status: 200, body: { head: 9, generation, events: [ev(lost ? 2 : 1)], next: lost ? 2 : 1, more: false } };
+      return stored;
+    });
+    return { ...t, restore: () => { generation = 77; lost = true; } };
+  }
+
+  it("is sent everything this device was told had arrived, and read again from the start", async () => {
+    const t = restorable();
+    const item = await t.engine.submit(sos);
+    await t.engine.run(4);
+    expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered", seq: 8 }]);
+    const before = posts(t.server.calls).length;
+    t.restore();
+    await t.engine.run(4);
+    const resent = posts(t.server.calls).slice(before);
+    expect(resent.map((c) => c.body.eid)).toEqual([item.eid]);
+    expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered", eid: item.eid }]);
+    expect((await t.db.events.toArray()).map((e) => e.seq)).toEqual([2]);      // nothing from before the restore
+    expect(await t.engine.cursor(4)).toBe(2);
+  });
+
+  it("does nothing special on the first answer or while the generation stays", async () => {
+    const t = restorable();
+    await t.engine.submit(sos);
+    await t.engine.run(4);
+    await t.engine.run(4);
+    expect(posts(t.server.calls)).toHaveLength(1);
+  });
+
+  it("resends too when it only notices because the cursor is ahead", async () => {
+    let behind = false;
+    const t = setup((c) => {
+      if (c.path === "/v1/session") return session;
+      if (c.path.startsWith("/v1/sync")) {
+        const head = behind ? 2 : 3;                              // the restored server has less
+        if (Number(new URL(c.path, "http://x").searchParams.get("after")) > head) return { status: 409, body: { error: "resync" } };
+        return { status: 200, body: { head, generation: 0, events: [ev(head)], next: head, more: false } };
+      }
+      return stored;
+    });
+    await t.engine.submit(sos);
+    await t.engine.run(4);
+    behind = true;
+    await t.engine.run(4);
+    expect(posts(t.server.calls)).toHaveLength(2);
+    expect(await t.db.outbox.toArray()).toMatchObject([{ state: "delivered" }]);
+  });
+
+  it("does not go round for ever with a server that keeps contradicting itself", async () => {
+    let generation = 0;
+    for (const answer of [
+      () => ({ status: 409, body: { error: "resync" } }),
+      () => ({ status: 200, body: { head: 3, generation: ++generation, events: [], next: 3, more: false } }),
+      () => (++generation % 2 ? { status: 200, body: { head: 3, generation: 0, events: [ev(3)], next: 3, more: false } } : { status: 409, body: { error: "resync" } }),
+    ]) {
+      const t = setup((c) => (c.path === "/v1/session" ? session : c.path.startsWith("/v1/sync") ? answer() : stored));
+      await t.engine.submit(sos);
+      await t.engine.run(4);
+      await t.engine.run(4);
+      expect(t.server.calls.length).toBeLessThan(60);
+    }
+  });
+});

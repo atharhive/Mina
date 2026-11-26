@@ -13,7 +13,8 @@ export type Result<T> = { ok: true; value: T } | { ok: false; failure: Failure; 
 
 export interface Session { token: string; sub: string; exp: number }
 export interface Stored { seq: number; incident: number | null; duplicate: boolean }
-export interface Page { head: number; next: number; more: boolean; events: StoredEvent[] }
+/** `generation` changes when the server's database has been restored from an older copy. */
+export interface Page { head: number; generation: number; next: number; more: boolean; events: StoredEvent[] }
 
 const TIMEOUT_MS = 15_000;
 
@@ -37,7 +38,7 @@ export class MinaApi {
   sync(token: string, region: number, after: number, limit: number): Promise<Result<Page>> {
     return this.call(`/v1/sync?region=${region}&after=${after}&limit=${limit}`, { headers: { authorization: `Bearer ${token}` } }, 200, (b) =>
       Array.isArray(b.events) && Number.isInteger(b.next)
-        ? { head: b.head, next: b.next, more: b.more === true, events: b.events.map((e: unknown[]) => decodeEvent(e, region)) }
+        ? { head: b.head, generation: b.generation ?? 0, next: b.next, more: b.more === true, events: b.events.map((e: unknown[]) => decodeEvent(e, region)) }
         : null);
   }
 

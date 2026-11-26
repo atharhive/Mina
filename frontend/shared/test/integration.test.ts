@@ -22,6 +22,11 @@ async function start() {
   }
   throw new Error("server did not start");
 }
+async function stop() {
+  const gone = new Promise((r) => server!.once("exit", r));
+  server!.kill();
+  await gone;
+}
 const sql = (q: string) => execFileSync("sqlite3", [join(dir, "m.db"), q], { encoding: "utf8" }).trim();
 
 beforeAll(() => {
@@ -64,5 +69,23 @@ describe("against the real server", () => {
     const events = await db.events.orderBy("seq").toArray();
     expect(displayStatus(item, events, true)).toBe("resolved");
     expect(events.map((e) => [e.kind, e.status, e.body, e.region])).toEqual([[2, STATUS.acknowledged, null, 3], [4, STATUS.resolved, null, 3]]);
+
+    // an older copy of the database is restored: a report made after the copy is gone from the server
+    execFileSync(join(root, "tools/backup.sh"), [join(dir, "m.db"), join(dir, "backup.db")]);
+    await citizen.submit({ kind: KIND.safety_reported, region: 3, status: 2 });
+    await citizen.run(3);
+    expect(sql("SELECT count(*) FROM events WHERE kind = 5")).toBe("1");
+    await stop();
+    execFileSync(join(root, "tools/restore.sh"), [join(dir, "backup.db"), join(dir, "m.db")]);
+    expect(sql("SELECT count(*) FROM events WHERE kind = 5")).toBe("0");
+    await start();
+    now += 120_000;
+    await citizen.run(3);
+    await citizen.run(3);
+    expect(sql("SELECT count(*) FROM events WHERE kind = 5")).toBe("1");              // sent again, once
+    expect(sql("SELECT count(*) FROM events WHERE kind = 1")).toBe("1");              // the older one was kept
+    const mine = await db.outbox.orderBy("id").toArray();
+    expect(mine.map((i) => i.state)).toEqual(["delivered", "delivered"]);
+    expect(displayStatus(mine[0]!, await db.events.toArray(), true)).toBe("resolved");
   });
 });
