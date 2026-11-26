@@ -72,6 +72,9 @@ function submission() {
   if ((kind === 1 || kind === 5) && random() < 0.5) body.body = pick(bodies);
   if ((kind === 1 || kind === 5) && random() < 0.3) Object.assign(body, { lat: below(200) - 100, lon: below(200) - 100 });
   if (random() < 0.3) body.at = below(2_000_000_000);
+  // a bad incident number needs an update kind and this very field: ask for it directly, or short
+  // runs may never produce it
+  if (kind >= 2 && kind <= 4 && random() < 0.06) body.incident = pick([0, -1, 1.5, "1", null]);
   // now and then, break something
   for (let k = random() < 0.35 ? 1 + below(2) : 0; k > 0; k--) {
     const field = pick(["eid", "kind", "region", "category", "status", "incident", "body", "lat", "lon", "at"]);
