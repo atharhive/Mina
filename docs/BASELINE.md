@@ -161,6 +161,18 @@ Reading these numbers:
 - Not measured: any step above 100,000 users, a 30-minute stability run, a two-machine run,
   TLS, or session creation under load.
 
+## Citizen app bundle
+
+`vite build`, gzip sizes of the single JavaScript file, 2026-11-26. The budget is 100 KB.
+
+| Variant | JavaScript, gzip | End-to-end test |
+|---|---:|---|
+| As committed: React 19.3.1 and Dexie 4.4.7 | 105.15 KB | passes |
+| The same with Dexie left out of the bundle (for size only, does not run) | 74.09 KB | not run |
+| Preact 11.2.0 compatibility layer in place of React, with Dexie (trial copy, not committed) | 44.05 KB | passes unchanged |
+
+The stylesheet adds 2.72 KB. Lighthouse has not been run.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.

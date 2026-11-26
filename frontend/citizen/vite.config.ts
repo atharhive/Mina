@@ -23,4 +23,7 @@ function serviceWorker(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [react(), tailwind(), serviceWorker()] });
+export default defineConfig({
+  plugins: [react(), tailwind(), serviceWorker()],
+  server: { proxy: { "/v1": "http://127.0.0.1:8080" } },     // a local mina-server, in development
+});

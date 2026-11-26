@@ -5,12 +5,13 @@ Infrastructure for when infrastructure fails.
 MINA is an offline-first disaster communication system in development: one native C server on
 Linux io_uring and SQLite, with its application layer specified in Lean 4 and generated into C.
 
-**Status: Milestone C.** The server API works end to end, and synchronisation runs on native
+**Status: Milestone D in progress.** The server API works end to end, and synchronisation runs on native
 B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
 C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
-TLS exists yet. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+TLS exists yet. The citizen web app works offline in development; the server does not serve it
+yet. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 MINA is not a replacement for official emergency services.
 
@@ -100,6 +101,17 @@ reports and safety statuses.
 [docs/REUSING.md](docs/REUSING.md) explains how the Lean specification, the C generator and the
 runtime fit together, with a worked example of adding a route.
 
+## Web app
+
+Needs Node 22 and pnpm; the end-to-end test also needs Google Chrome.
+
+```bash
+cd frontend && pnpm install
+pnpm test                      # outbox and sync, including a run against the built server
+pnpm --dir citizen e2e         # report offline, reconnect, delivered, resolved
+pnpm --dir citizen dev         # development server; proxies /v1 to 127.0.0.1:8080
+```
+
 ## Layout
 
 ```
@@ -109,6 +121,7 @@ runtime/   application-independent C: transport, HTTP, JSON, tokens, buffers, SQ
 tools/     mina-admin: offline tokens and synthetic data
 tests/     unit, contract and seed tests, a kernel probe
 bench/     load generator and single-machine benchmark runner
+frontend/  shared sync engine and the citizen web app
 docs/      architecture, proofs, guide to reusing the Lean pipeline, plan, measurements
 ```
 
