@@ -7,6 +7,9 @@ import { SignIn } from "./SignIn";
 import { connection, db, engine, signOut } from "./store";
 import { CATEGORY_TEXT, STATUS_TEXT, STATUS_TONE, clock, place } from "./text";
 
+/** Incidents put on the page at a time. The list is in priority order, so these are the ones
+ * that need attention; thousands of rows would freeze the page on every change. */
+const PAGE_ROWS = 200;
 const LINK_TEXT: Record<Link, string> = { online: "Online", offline: "Offline — changes wait on this device", unreachable: "Cannot reach the server — changes wait on this device" };
 
 export function App() {
@@ -48,6 +51,7 @@ function Dashboard({ responder, regions }: { responder: Responder; regions: numb
   const safety = events.filter((e) => e.kind === KIND.safety_reported)
     .sort((a, b) => Number(b.status === SAFETY.needs_help) - Number(a.status === SAFETY.needs_help) || b.seq - a.seq).slice(0, 50);
   const [selected, setSelected] = useState<number>();
+  const [shown, setShown] = useState(PAGE_ROWS);
   const incident = list.find((i) => i.id === selected);
   const unsent = outbox.filter((i) => i.state === "queued").length;
 
@@ -70,7 +74,7 @@ function Dashboard({ responder, regions }: { responder: Responder; regions: numb
               Incidents <span className="font-normal text-muted">· {list.filter((i) => i.status === 1).length} unanswered</span></h2>
             {list.length === 0 && <p className="py-3 text-muted">No reports received.</p>}
             <ol aria-label="Incidents" className="max-h-[60vh] overflow-y-auto">
-              {list.map((i) => (
+              {list.slice(0, shown).map((i) => (
                 <li key={i.id} className="row border-b border-line">
                   <button onClick={() => setSelected(i.id)} aria-current={i.id === selected} className={`block w-full px-2 py-2 text-left ${i.id === selected ? "bg-panel" : ""}`}>
                     <span className="flex justify-between gap-2"><span className="font-semibold">{CATEGORY_TEXT[i.category]}</span>
@@ -81,6 +85,11 @@ function Dashboard({ responder, regions }: { responder: Responder; regions: numb
                 </li>
               ))}
             </ol>
+            {list.length > shown && (
+              <button onClick={() => setShown(shown + PAGE_ROWS)} className="mt-2 w-full border border-line py-2 text-sm">
+                Show {Math.min(PAGE_ROWS, list.length - shown)} more <span className="text-muted">({list.length - shown} not shown)</span>
+              </button>
+            )}
           </section>
           <section aria-label="Safety reports">
             <h2 className="border-b border-line pb-1 font-semibold">Safety reports</h2>
