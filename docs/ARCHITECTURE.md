@@ -27,6 +27,7 @@ Synchronisation reads come from native B-tree plans, everything else from SQL. W
 | `Mina.Query` | the SQL that defines what reads return |
 | `Mina.Contract` | routes, errors, response shapes, rate limits |
 | `Mina.Model`, `Plan`, `Sync`, `Transition` | the event store as a model, and the theorems about reads, retries, cursors and transitions |
+| `Mina.Oracle` (executable `oracle`) | the expected answer to every request, for comparison with the server |
 | `Mina.Codegen`, `Mina.Emit` | the generator |
 
 ## Request lifecycle

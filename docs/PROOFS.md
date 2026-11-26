@@ -37,12 +37,24 @@ the runtime or SQLite are correct.
 | `target_determined` | the new status comes from the kind, or from a `status` field whose accepted range contains it |
 | `status_codes_valid` | every transition ends in a known status other than `open` |
 
+## The oracle: a second reference
+
+`Mina/Oracle.lean` is an executable model of what the server should answer, built on the same
+definitions as the theorems: `Db.submit`, `Db.syncRef`, `Db.syncAllRef` and `Mina.Domain`.
+`tests/oracle.mjs` sends the same random requests, valid and invalid, to the server and to it, and
+compares every status and body (server times masked).
+
+This is testing, not proof. What the two implement separately, and so what it can catch: the
+order of the checks, validation of each value, retries, permissions, redaction, paging and the
+shape of every answer. What they share and it cannot catch: the field rules and transitions
+themselves (`Mina.Domain`). Not covered: tokens, rate limits, and numbers written like `1e2`.
+
 ## Assumptions
 
 1. **The model mirrors storage.** `Db.events` is the `events` table in rowid order. Only the
    columns that decide which rows a read returns are modelled.
 2. **Queries.** `syncRef` and `syncAllRef` say what the SQL in `gen/queries.sql` returns. The
-   correspondence is by reading and by test, not by proof.
+   correspondence is by reading and by test (`tests/diff.sh`, `tests/oracle.mjs`), not by proof.
 3. **B-trees.** SQLite's index B-tree yields `events_region_vis` entries in the order
    `(region, vis, rowid)`, and a seek by rowid returns the row stored under it.
 4. **One writer.** Only this server writes the database. A commit by another connection must

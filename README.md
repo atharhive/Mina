@@ -7,7 +7,7 @@ Linux io_uring and SQLite, with its application layer specified in Lean 4 and ge
 
 **Status: Milestone D.** The server API works end to end, and synchronisation runs on native
 B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
-C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
+C against that SQL and against an executable Lean oracle ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
 TLS exists yet. The server serves the citizen app (`/`), the responder dashboard (`/command/`) and an
@@ -34,6 +34,7 @@ tests/contract.sh       # exact responses, roles, transitions, sync, limits, fra
 tests/seed.sh           # the synthetic data generator
 tests/proofs.sh         # the theorems and the axioms they use
 tests/diff.sh           # native read plans against the reference SQL
+node tests/oracle.mjs   # every answer against the Lean oracle
 tests/plans.sh          # no statement scans or sorts
 tests/assets.sh         # serving a web application from memory
 node tests/crash.mjs    # kill the server under load, check nothing acknowledged is lost

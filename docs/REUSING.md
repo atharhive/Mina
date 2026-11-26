@@ -33,6 +33,7 @@ a network service, has to meet that licence's terms.
 | `spec/Mina/Codegen/Domain.lean` | C constants and tables from the domain | replace along with the domain |
 | `spec/Mina/Domain.lean`, `Schema.lean`, `Query.lean`, `Contract.lean` | the application | replace |
 | `spec/Mina/Model.lean`, `Plan.lean`, `Sync.lean`, `Transition.lean` | the model and theorems | replace; the proof pattern (reference query, plan, equality) carries over |
+| `spec/Mina/Oracle.lean`, `OracleMain.lean` | an executable reference for tests | replace; keep the pattern of comparing every answer |
 | `spec/Mina/Emit.lean` | which generated text fills which template slot | rewrite for your slots |
 | `spec/Mina/templates/app.c` | handlers: the C that is not generated | rewrite; keep the batch skeleton |
 | `tools/`, `tests/`, `bench/workload_*.h` | operator tool, tests, workload | replace |

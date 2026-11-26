@@ -314,6 +314,21 @@ Under heavy writing the background checkpoint sometimes falls behind and the req
 checkpoints itself, which stalls it for one sync: 1 to 4 such messages per run at 20 % reports,
 6 at 40 %. A candidate for Milestone E.
 
+## Server against the Lean oracle
+
+`node tests/oracle.mjs <requests> <seed>`, 2026-11-26. Every run reached all 26 kinds of answer.
+
+| Run | Requests | Events stored | Differences |
+|---|---:|---:|---:|
+| Seed 1 | 20,000 | 1,765 | 0 |
+| Seeds 2 and 3 | 25,000 each | about 2,200 each | 0 |
+| Seed 4, ASan and UBSan server | 10,000 | 876 | 0 |
+| Seed 5 (279 s) | 150,000 | 13,530 | 0 |
+
+With a bug planted in a copy of the C (another identity answered as a duplicate; one character
+too many accepted; the reporter shown the full report; one space character not trimmed), each run
+found a difference within the first 650 requests.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.
