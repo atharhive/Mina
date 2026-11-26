@@ -35,7 +35,9 @@ if grep -qE 'native plan failed|another connection|batch rolled back|checkpointe
 fi
 events=$(sqlite3 "$DB" 'SELECT count(*) FROM events')
 integrity=$(sqlite3 "$DB" 'PRAGMA integrity_check')
+# the request thread checkpoints itself, and stalls, when the background thread falls behind
+inline=$(grep -c 'checkpointed in the request thread' "$LOG" || true)
 jq -c --arg mode "$MODE" --arg commit "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" --argjson ev "$EVENTS" --argjson end "$events" \
-  --arg sync "$SYNC" --arg integrity "$integrity" --argjson retry "$RETRY_PCT" --argjson report "$REPORT_PCT" --argjson back "$CURSOR_BACK" \
-  '. + {mode: $mode, commit: $commit, events_at_start: $ev, events_at_end: $end, durability: $sync, integrity: $integrity,
+  --arg sync "$SYNC" --arg integrity "$integrity" --argjson retry "$RETRY_PCT" --argjson report "$REPORT_PCT" --argjson back "$CURSOR_BACK" --argjson inline "$inline" \
+  '. + {mode: $mode, commit: $commit, events_at_start: $ev, events_at_end: $end, durability: $sync, integrity: $integrity, inline_checkpoint_messages: $inline,
         profile: {retry_pct: $retry, report_pct: $report, cursor_back: $back}}' <<<"$line" | tee -a "$RESULTS/steps.jsonl"
