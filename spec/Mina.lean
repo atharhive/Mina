@@ -7,6 +7,7 @@ import Mina.Transition
 import Mina.Schema
 import Mina.Query
 import Mina.Codegen.Domain
+import Mina.Codegen.TypeScript
 import Mina.Codegen.Schema
 import Mina.Contract
 import Mina.Codegen.C

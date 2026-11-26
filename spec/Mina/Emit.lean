@@ -4,6 +4,7 @@ import Mina.Codegen.Responses
 import Mina.Codegen.Routes
 import Mina.Codegen.Schema
 import Mina.Codegen.Domain
+import Mina.Codegen.TypeScript
 import Mina.Query
 
 /-!
@@ -71,6 +72,7 @@ def queriesSql : String :=
 
 /-- The generated files, by name. -/
 def outputs : List (String × String) := [("app_gen.c", appGen), ("domain.h", emitDomainHeader), ("queries.sql", queriesSql),
+   ("protocol.ts", emitProtocolTs),
    ("schema.sql", schemaSql)]
 
 end Mina.Emit
