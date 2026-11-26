@@ -312,7 +312,7 @@ server more memory than this shows.
 
 Under heavy writing the background checkpoint sometimes falls behind and the request thread
 checkpoints itself, which stalls it for one sync: 1 to 4 such messages per run at 20 % reports,
-6 at 40 %. A candidate for Milestone E.
+6 at 40 %. Addressed afterwards: [OPTIMIZATION_LOG.md](OPTIMIZATION_LOG.md), entry 2.
 
 ## Server against the Lean oracle
 

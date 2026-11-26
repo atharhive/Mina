@@ -32,3 +32,35 @@ or sorts under the bundled SQLite.
 
 Kept. (Single runs. CPU figures on this machine were later seen to differ by up to about 60 %
 between sessions; this change is several times larger than that.)
+
+## 2. The request thread stalled to checkpoint under heavy writing
+
+**Symptom.** With many new reports, the log said `checkpointed in the request thread`, each time
+stalling every connection: 3.8 to 9.2 ms, 23 times in one 155 s run.
+
+**Cause.** Continuous commits never leave the moment in which the write-ahead log could restart,
+so whenever the background checkpoint falls behind, the log grows to its limit (`WAL_HIGH`) and
+the request thread checkpoints it.
+
+**Change tried.** `WAL_HIGH` from 16,384 to 65,536 frames. Nothing else differs between the
+builds. Six alternating runs of each, 40 % of citizen requests new reports (about 1,700 and
+3,400 new events/s), 2026-11-26; raw rows in
+`bench/reports/2026-11-26-wal-limit.jsonl`.
+
+| Users | Limit | Runs with stalls | Stalls (min / median / max) | 99.9th percentile, per run | Worst request, per run | Peak memory, per run |
+|---:|---:|---|---|---|---|---|
+| 50,000 | 16,384 | 1 of 3 | 12 (5.3 / 9.1 / 12.0 ms) | 2.9, 2.9, **5.6** ms | 5.4, 5.1, **18.5** ms | 281, 281, 342 MB |
+| 50,000 | 65,536 | 0 of 3 | none | 2.9, 3.1, 2.9 ms | 5.5, 6.0, 5.4 ms | 281, 281, **444** MB |
+| 100,000 | 16,384 | 1 of 3 | 37 (1.8 / 10.5 / 12.8 ms) | 2.6, **11.9**, 2.9 ms | 5.7, **18.6**, 5.8 ms | 518, 568, 533 MB |
+| 100,000 | 65,536 | 0 of 3 | none | 2.6, 2.6, 3.7 ms | 6.5, 8.0, 9.0 ms | 519, 518, 525 MB |
+
+Server CPU (32.7 to 35.3 %) and throughput did not differ; every acknowledged event was stored.
+
+**Reading it.** The condition comes and goes: it appeared in 2 of 6 runs at the old limit, which
+then had the long tail. It cannot be forced, so the larger limit is shown to help only as far as
+those runs reach. Its cost is a larger log when the background thread is behind: one run used
+about 160 MB more page cache (reclaimable memory, counted against the 2 GB). A restart after a
+crash has more log to scan; that time was not measured.
+
+Kept.
+

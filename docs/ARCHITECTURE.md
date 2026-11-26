@@ -96,7 +96,7 @@ A single answer can exceed the pause mark: 256 events of 280 four-byte character
 
 Persistence: WAL, `synchronous=NORMAL`, 1 GiB mmap. Automatic checkpoints are replaced by a
 second thread with its own connection (`db.c: wal_hook`, `ckpt_main`); the request thread
-checkpoints itself only if the log passes 16,384 frames.
+checkpoints itself only if the log passes 65,536 frames (256 MB at 4 KB pages).
 
 A write is answered only after its batch has committed. With `synchronous=NORMAL` a committed
 write survives a process crash (tested, `tests/crash.mjs`) but may be lost on power failure.

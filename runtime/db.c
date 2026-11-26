@@ -63,7 +63,10 @@ static i64 db_user_version(void) {
  * hook wakes the thread once the log passes CKPT_FRAMES. */
 #include <pthread.h>
 #define CKPT_FRAMES 1000
-#define WAL_HIGH 16384      /* see db_wal_bound */
+/* Frames the log may reach before the request thread checkpoints it (db_wal_bound), 256 MB of
+ * log at 4 KB pages. When the background thread fell behind under heavy writing, 16384 made the
+ * request thread stall for up to 13 ms; with 65536 no run did (docs/OPTIMIZATION_LOG.md). */
+#define WAL_HIGH 65536
 
 static sqlite3 *ckpt_db;
 static pthread_mutex_t ckpt_mu = PTHREAD_MUTEX_INITIALIZER;
