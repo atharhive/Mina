@@ -173,6 +173,10 @@ Reading these numbers:
 
 The stylesheet adds 2.72 KB. Lighthouse has not been run.
 
+Decision (2026-11-26): React is kept, 5 KB over the budget. The difference costs a first visit
+only, since the service worker then holds the application; at 50 kbit/s, 61 KB is about 10 s.
+Revisit if the bundle grows.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.
