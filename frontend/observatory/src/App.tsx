@@ -13,9 +13,11 @@ export function App() {
         <h1 className="text-lg font-semibold tracking-tight">MINA Observatory</h1>
         {token && <button className="text-sm underline" onClick={() => setToken("")}>Disconnect</button>}
       </header>
-      {token ? <Connected token={token} /> : <Connect onToken={setToken} />}
-      <Recorded />
-      <Proved />
+      <main className="space-y-8">
+        {token ? <Connected token={token} /> : <Connect onToken={setToken} />}
+        <Recorded />
+        <Proved />
+      </main>
     </div>
   );
 }

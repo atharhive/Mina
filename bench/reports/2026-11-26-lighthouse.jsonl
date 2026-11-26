@@ -1,0 +1,9 @@
+{"page":"/","run":1,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":753,"lcp_ms":1653,"tbt_ms":0,"cls":0.03481092143100583,"bytes":95295,"failed":[]}
+{"page":"/","run":2,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":752,"lcp_ms":1652,"tbt_ms":0,"cls":0.03481092143100583,"bytes":94892,"failed":[]}
+{"page":"/","run":3,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":753,"lcp_ms":1653,"tbt_ms":0,"cls":0.03481092143100583,"bytes":95295,"failed":[]}
+{"page":"/command/","run":1,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":753,"lcp_ms":753,"tbt_ms":0,"cls":0,"bytes":95569,"failed":[]}
+{"page":"/command/","run":2,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":752,"lcp_ms":1502,"tbt_ms":0,"cls":0,"bytes":95569,"failed":[]}
+{"page":"/command/","run":3,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":753,"lcp_ms":1503,"tbt_ms":0,"cls":0,"bytes":95569,"failed":[]}
+{"page":"/observatory/","run":1,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":751,"lcp_ms":1501,"tbt_ms":0,"cls":0,"bytes":95456,"failed":[]}
+{"page":"/observatory/","run":2,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":752,"lcp_ms":752,"tbt_ms":0,"cls":0,"bytes":95456,"failed":[]}
+{"page":"/observatory/","run":3,"lighthouse":"13.6.0","performance":100,"accessibility":100,"best_practices":100,"fcp_ms":753,"lcp_ms":753,"tbt_ms":0,"cls":0,"bytes":95456,"failed":[]}

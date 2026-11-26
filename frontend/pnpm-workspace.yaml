@@ -6,3 +6,8 @@ packages:
 # only releases that have been public for two weeks (a guard against freshly compromised ones)
 minimumReleaseAge: 20160
 savePrefix: ""
+# a dependency of lighthouse uses tslib without declaring it
+packageExtensions:
+  intl-messageformat:
+    dependencies:
+      tslib: 2.8.1
