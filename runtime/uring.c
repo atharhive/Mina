@@ -151,6 +151,8 @@ static void conn_close(ring *r, u32 slot) {
   if (c->state != C_OPEN) return;
   if (c->sending) { c->close_after = 1; return; }
   c->state = C_CLOSING;
+  stats.open--;
+  stats.closed++;
   struct io_uring_sqe *s = sqe_get(r);
   s->opcode = IORING_OP_SHUTDOWN;
   s->fd = (int)slot;
@@ -247,6 +249,7 @@ static u32 parse_requests(ring *r, u32 slot, const u8 *p, u32 n) {
     int k = http_parse(p + used, n - used, &rq);
     if (k == 0) break;
     c->active = mono_s;
+    stats.requests++;
     if (njobs >= MAX_JOBS - 1) { conn_hold(r, slot); break; }
     job_t *j = &jobs[njobs++];
     memset(j, 0, sizeof *j);
@@ -312,7 +315,10 @@ static void handle_cqe(ring *r, struct io_uring_cqe *e) {
   case OP_ACCEPT:
     if (res >= 0) {
       conn *c = &r->conns[res];
+      if (c->state == C_OPEN) stats.open--;
       if (c->state != C_FREE) conn_reset(c);
+      stats.accepted++;
+      stats.open++;
       c->gen++;
       c->state = C_OPEN;
       c->active = mono_s;
@@ -336,6 +342,7 @@ static void handle_cqe(ring *r, struct io_uring_cqe *e) {
       if (!c->recv_armed && c->state == C_OPEN) rearm[nrearm++] = conn_id(r->idx, slot);
     } else {
       if (has_buf) buf_recycle(r, bid);
+      if (res == -ENOBUFS) stats.no_buffers++;
       if (res == -ENOBUFS && c->state == C_OPEN) rearm[nrearm++] = conn_id(r->idx, slot);
       else if (res == 0 || res != -ENOBUFS) conn_close(r, slot);
     }
@@ -504,7 +511,12 @@ static void deliver(void) {
     u32 slot = j->conn & 0xffff;
     conn *c = &r->conns[slot];
     if (c->gen != j->gen || c->state != C_OPEN) { if (j->resp) obuf_release(j->resp); continue; }
-    if (j->resp) conn_send(r, slot, j->resp);
+    if (j->resp) {
+      u8 digit = (u8)(j->resp->data[9] - '0');          /* "HTTP/1.1 NNN" */
+      if (digit < 6) stats.status[digit]++;
+      stats.bytes_out += j->resp->len;
+      conn_send(r, slot, j->resp);
+    }
     if (j->close_after) conn_close(r, slot);
   }
   njobs = 0;
@@ -556,6 +568,16 @@ static void stats_tick(void) {
 #define STAT(x) ((void)0)
 #endif
 
+/* Serve the collected jobs and note how long it took. */
+static void run_batch(void) {
+  u64 start = clock_ns(), n = (u64)njobs;
+  app_batch(jobs, njobs);
+  hist_add(&stats.batch_us, (clock_ns() - start) / 1000, n);
+  stats.batches++;
+  stats.jobs += n;
+  if (n > stats.batch_jobs_max) stats.batch_jobs_max = n;
+}
+
 /* Once a second, walk the connection slots (a bounded number per iteration) and drop those
  * with no completed request and no progress sending for more than idle_limit_s. A request that
  * trickles in does not count. */
@@ -570,7 +592,7 @@ static void sweep_idle(void) {
     ring *r = &rings[ri];
     if (slot >= r->hi) { ri++; slot = 0; continue; }
     conn *c = &r->conns[slot];
-    if (c->state == C_OPEN && mono_s - c->active > idle_limit_s) conn_abort(r, slot);
+    if (c->state == C_OPEN && !c->aborted && mono_s - c->active > idle_limit_s) { stats.idle_dropped++; conn_abort(r, slot); }
     slot++;
     budget--;
   }
@@ -610,11 +632,13 @@ static void transport_run(void) {
     for (int i = 0; i < nrings; i++) if (!rings[i].accept_armed) arm_accept(&rings[i]);
     STAT(st_jobs += (u64)njobs);
     served += njobs;
-    if (njobs) app_batch(jobs, njobs);
+    if (njobs) run_batch();
     deliver();
     /* connections held at a write continue now, after their batch committed */
     release_holds();
-    if (njobs) { STAT(st_jobs += (u64)njobs); served += njobs; app_batch(jobs, njobs); deliver(); }
+    if (njobs) { STAT(st_jobs += (u64)njobs); served += njobs; run_batch(); deliver(); }
+    stats.iterations++;
+    stats.completions += (u64)got;
     for (int i = 0; i < nrearm; i++) {
       ring *r = &rings[rearm[i] >> 16];
       u32 slot = rearm[i] & 0xffff;

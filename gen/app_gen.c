@@ -38,7 +38,7 @@ static const u8 E_INTERNAL[] = "HTTP/1.1 500 Internal Server Error\r\nContent-Ty
 #define ERR(name) obuf_static(E_##name, sizeof E_##name - 1)
 
 
-enum { K_NONE = 0, K_HEALTH, K_SESSION, K_EVENT, K_SYNC, K_INCIDENT };
+enum { K_NONE = 0, K_HEALTH, K_SESSION, K_EVENT, K_SYNC, K_INCIDENT, K_METRICS };
 
 /* ---- stored layout: Mina.Schema --------------------------------------------------------- */
 static int schema_check(void) {
@@ -117,6 +117,14 @@ static void app_init(void) {
   started_at = time(0);
 }
 
+/* ---- what the application counts about itself (GET /v1/metrics) -------------------------- */
+
+static struct {
+  u64 events_stored, duplicates, transitions_refused, rate_limited, auth_refused, sessions_issued;
+  u64 sync_native, sync_quiet, sync_sql, resyncs, sync_bytes;
+  histogram native_ns;                  /* time in the native plan, for answers that read */
+} app_stats;
+
 /* ---- request data ------------------------------------------------------------------------ */
 
 /* Data that must outlive the receive buffer until the batch completes. */
@@ -131,8 +139,9 @@ static void *arena_get(u32 n) {
 
 /* "Authorization: Bearer <token>" with a role this application knows. */
 static int authenticate(const req_t *rq, job_t *j, claims_t *c) {
-  if (!rq->has_auth || rq->auth_len < 7 || memcmp(rq->auth, "Bearer ", 7)) { j->resp = ERR(NO_BEARER); return 0; }
+  if (!rq->has_auth || rq->auth_len < 7 || memcmp(rq->auth, "Bearer ", 7)) { app_stats.auth_refused++; j->resp = ERR(NO_BEARER); return 0; }
   if (jwt_verify(rq->auth + 7, rq->auth_len - 7, now_s, c) != JWT_OK || c->role < ROLE_CITIZEN || c->role > ROLE_ADMIN) {
+    app_stats.auth_refused++;
     j->resp = ERR(BAD_TOKEN);
     return 0;
   }
@@ -192,7 +201,7 @@ static int citizen_admit(i64 uid) {
  * written while decoding and no job is queued. Always returns 0. */
 static int issue_session(const req_t *rq, job_t *j) {
   (void)rq;
-  if (!bucket_take(&session_bucket, 1, 100, 200)) { j->resp = ERR(RATE); return 0; }
+  if (!bucket_take(&session_bucket, 1, 100, 200)) { app_stats.rate_limited++; j->resp = ERR(RATE); return 0; }
   u64 r;
   if (getrandom(&r, sizeof r, 0) != sizeof r) { j->resp = ERR(UNAVAILABLE); return 0; }
   claims_t c = {.uid = (i64)(r % 999999999999999ULL) + 1, .role = ROLE_CITIZEN};
@@ -209,6 +218,7 @@ static int issue_session(const req_t *rq, job_t *j) {
   out_lit(o, ",\"exp\":", 7);
   out_i64(o, exp);
   out_lit(o, "}", 1);
+  app_stats.sessions_issued++;
   j->resp = out_finish(o, HDR_201, sizeof HDR_201 - 1);
   return 0;
 }
@@ -317,7 +327,7 @@ static int decode_event(const req_t *rq, job_t *j) {
   }
   /* Responders act inside their regions; a citizen may report from anywhere. */
   if ((present & F_REGION) && who.role != ROLE_CITIZEN && !in_region(&who, ev->region)) { j->resp = ERR(BAD_AREA); return 0; }
-  if (who.role == ROLE_CITIZEN && !citizen_admit(who.uid)) { j->resp = ERR(RATE); return 0; }
+  if (who.role == ROLE_CITIZEN && !citizen_admit(who.uid)) { app_stats.rate_limited++; j->resp = ERR(RATE); return 0; }
   j->data = ev;
   return 1;
 }
@@ -362,6 +372,13 @@ static int decode_incident(const req_t *rq, job_t *j, const u8 *id, u32 id_n) {
   jmember m = {0, 0, JT_NUMBER, id, id_n, 0};
   if (!json_int(&m, 1, 999999999999999LL, &q->id)) { j->resp = ERR(NO_INCIDENT); return 0; }
   j->data = q;
+  return 1;
+}
+
+static int decode_metrics(const req_t *rq, job_t *j) {
+  claims_t who;
+  if (!authenticate(rq, j, &who)) return 0;
+  if (who.role != ROLE_ADMIN) { j->resp = ERR(FORBIDDEN); return 0; }
   return 1;
 }
 
@@ -410,6 +427,15 @@ static void app_decode(const req_t *rq, job_t *j) {
     if (path_lit(&s, e, "/v1", 3) && path_lit(&s, e, "/incidents", 10) && path_param(&s, e, &id_p, &id_n) && s == e) {
       if (!decode_incident(rq, j, id_p, id_n)) return;
       j->kind = K_INCIDENT; j->is_write = 0;
+      return;
+    }
+  }
+  if (rq->method == M_GET) {
+    const u8 *s = p, *e = p + n, *id_p = 0; u32 id_n = 0;
+    (void)id_p; (void)id_n;
+    if (path_lit(&s, e, "/v1", 3) && path_lit(&s, e, "/metrics", 8) && s == e) {
+      if (!decode_metrics(rq, j)) return;
+      j->kind = K_METRICS; j->is_write = 0;
       return;
     }
   }
@@ -531,7 +557,7 @@ static int sync_native(out_t *o, const sync_t *q, i64 *next, int *more) {
 static int exec_sync_native(job_t *j) {
   const sync_t *q = j->data;
   i64 head = global_head;
-  if (q->after > head) { j->resp = ERR(RESYNC); return 0; }
+  if (q->after > head) { app_stats.resyncs++; j->resp = ERR(RESYNC); return 0; }
   int quiet = q->after >= heads[q->region][0] && (!q->restricted || q->after >= heads[q->region][1]);
   out_t o0, *o = &o0;
   out_begin(o);
@@ -541,7 +567,12 @@ static int exec_sync_native(job_t *j) {
   out_lit(o, ",\"events\":[", 11);
   i64 next = q->after;
   int more = 0;
-  if (!quiet && sync_native(o, q, &next, &more)) { out_abort(o); return -1; }
+  if (!quiet) {
+    u64 start = clock_ns();
+    if (sync_native(o, q, &next, &more)) { out_abort(o); return -1; }
+    hist_add(&app_stats.native_ns, clock_ns() - start, 1);
+    app_stats.sync_native++;
+  } else app_stats.sync_quiet++;
   out_need(o, 43);
   out_lit(o, "],\"next\":", 9);
   out_i64(o, next);
@@ -549,6 +580,7 @@ static int exec_sync_native(job_t *j) {
   if (more) out_lit(o, "true", 4); else out_lit(o, "false", 5);
   out_lit(o, "}", 1);
   j->resp = out_finish(o, HDR_200, sizeof HDR_200 - 1);
+  app_stats.sync_bytes += j->resp->len;
   return 0;
 }
 
@@ -565,7 +597,7 @@ static void exec_sync(job_t *j) {
   i64 head = rc == SQLITE_ROW ? sqlite3_column_int64(Q_head, 0) : 0;
   sqlite3_reset(Q_head);
   if (rc != SQLITE_ROW) { j->resp = ERR(INTERNAL); return; }
-  if (q->after > head) { j->resp = ERR(RESYNC); return; }
+  if (q->after > head) { app_stats.resyncs++; j->resp = ERR(RESYNC); return; }
   sqlite3_stmt *s = q->restricted ? Q_sync_all : Q_sync_public;
   sqlite3_bind_int64(s, 1, q->region);
   sqlite3_bind_int64(s, 2, q->after);
@@ -593,6 +625,8 @@ static void exec_sync(job_t *j) {
   if (more) out_lit(o, "true", 4); else out_lit(o, "false", 5);
   out_lit(o, "}", 1);
   j->resp = out_finish(o, HDR_200, sizeof HDR_200 - 1);
+  app_stats.sync_sql++;
+  app_stats.sync_bytes += j->resp->len;
 }
 
 /* GET /v1/incidents/:id: the report for responders of the region, the summary for the person
@@ -662,7 +696,31 @@ static void exec_incident(job_t *j) {
   j->resp = out_finish(o, HDR_200, sizeof HDR_200 - 1);
 }
 
+/* GET /v1/metrics: runtime/metrics.c writes the server's figures, the application adds its own. */
+static void exec_metrics(job_t *j) {
+  i64 head = global_head;
+  if (!native_on) {
+    if (sqlite3_step(Q_head) == SQLITE_ROW) head = sqlite3_column_int64(Q_head, 0);
+    sqlite3_reset(Q_head);
+  }
+  out_t o0, *o = &o0;
+  out_begin(o);
+  metric_text(o, "{");
+  metrics_runtime(o);
+  metric_text(o, "\"app\":{");
+  metric(o, "native_on", (u64)native_on, 1);
+  metric(o, "head_seq", (u64)head, 1);
+#define M(name) metric(o, #name, app_stats.name, 1);
+  M(events_stored) M(duplicates) M(transitions_refused) M(rate_limited) M(auth_refused) M(sessions_issued)
+  M(sync_native) M(sync_quiet) M(sync_sql) M(resyncs) M(sync_bytes)
+#undef M
+  metric_histogram(o, "native_ns", &app_stats.native_ns, 0);
+  metric_text(o, "}}");
+  j->resp = out_finish(o, HDR_200, sizeof HDR_200 - 1);
+}
+
 static void exec_read(job_t *j) {
+  if (j->kind == K_METRICS) { exec_metrics(j); return; }
   if (j->kind == K_SYNC) { exec_sync(j); return; }
   if (j->kind == K_INCIDENT) { exec_incident(j); return; }
   out_t o0, *o = &o0;
@@ -707,6 +765,7 @@ static void stored_response(job_t *j, i64 seq, i64 incident, int duplicate) {
   out_t o0, *o = &o0;
   out_begin(o);
   if (duplicate) {
+    app_stats.duplicates++;
     out_need(o, 77);
   out_lit(o, "{\"seq\":", 7);
   out_i64(o, seq);
@@ -742,6 +801,7 @@ static int apply_transition(job_t *j, event_t *ev) {
   if (rc == SQLITE_DONE || !in_region(&ev->who, region)) { j->resp = ERR(NO_INCIDENT); return 0; }
   i64 target = KIND_SPECS[ev->kind].target ? KIND_SPECS[ev->kind].target : ev->status;
   if (status < STATUS_OPEN || status > STATUS_RESOLVED || !(TRANSITIONS[ev->kind][status] >> target & 1)) {
+    app_stats.transitions_refused++;
     j->resp = ERR(BAD_TRANSITION);
     return 0;
   }
@@ -849,7 +909,11 @@ static void app_batch(job_t *js, int n) {
       }
     if (batch_failed) { fprintf(stderr, "batch rolled back: %s\n", sqlite3_errmsg(db)); db_batch_abort(); }
     else if (db_batch_end()) batch_failed = 1;
-    else if (native_on && writes) advance_heads(js, n);
+    else if (writes) {
+      for (int i = 0; i < n; i++)
+        if (js[i].kind && js[i].is_write && ((const event_t *)js[i].data)->stored_seq) app_stats.events_stored++;
+      if (native_on) advance_heads(js, n);
+    }
     if (batch_failed)
       for (int i = 0; i < n; i++)
         if (js[i].kind && js[i].is_write) { if (js[i].resp) obuf_release(js[i].resp); js[i].resp = ERR(INTERNAL); }

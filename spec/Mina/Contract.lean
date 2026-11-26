@@ -112,17 +112,20 @@ def event : Endpoint := { kind := "K_EVENT", isWrite := true }
 def sync : Endpoint := { kind := "K_SYNC" }
 
 def incident : Endpoint := { kind := "K_INCIDENT" }
+/-- Admins only: the server's own measurements. -/
+def metrics : Endpoint := { kind := "K_METRICS" }
 
-def endpoints : List Endpoint := [health, session, event, sync, incident]
+def endpoints : List Endpoint := [health, session, event, sync, incident, metrics]
 
-/-- `GET /v1/health`, `GET /v1/sync`, `GET /v1/incidents/:id`, `POST /v1/session`,
-`POST /v1/events` -/
+/-- `GET /v1/health`, `GET /v1/sync`, `GET /v1/incidents/:id`, `GET /v1/metrics`,
+`POST /v1/session`, `POST /v1/events` -/
 def routes : List Route := [
   ⟨.get, [.lit "v1", .lit "health"], health, none⟩,
   ⟨.post, [.lit "v1", .lit "session"], session, some "issue_session"⟩,
   ⟨.post, [.lit "v1", .lit "events"], event, some "decode_event"⟩,
   ⟨.get, [.lit "v1", .lit "sync"], sync, some "decode_sync"⟩,
-  ⟨.get, [.lit "v1", .lit "incidents", .id], incident, some "decode_incident"⟩
+  ⟨.get, [.lit "v1", .lit "incidents", .id], incident, some "decode_incident"⟩,
+  ⟨.get, [.lit "v1", .lit "metrics"], metrics, some "decode_metrics"⟩
 ]
 
 end Mina.Contract

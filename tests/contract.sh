@@ -289,6 +289,41 @@ reply="$(timeout 5 cat <&3)"; exec 3<&- 3>&-
 made="$(grep -o 'HTTP/1.1 201' <<<"$reply" | wc -l)"; refused="$(grep -o 'HTTP/1.1 429' <<<"$reply" | wc -l)"
 [ $((made+refused)) = 600 ] && [ "$made" -ge 100 ] && [ "$made" -le 450 ] && ok "new sessions are limited server-wide ($made of 600)" || bad "session limit" "made $made refused $refused"
 
+echo "-- metrics"
+m() { req GET /v1/metrics "$ADM"; cp "$TMP/body" "$TMP/$1.json"; }
+diff_of() { echo $(( $(jq "$1" "$TMP/b.json") - $(jq "$1" "$TMP/a.json") )); }
+grew() { local got; got="$(diff_of "$2" 2>/dev/null)"; [ "$got" = "$3" ] && ok "$1" || bad "$1" "$2 changed by '$got', want $3"; }
+req GET /v1/metrics;            expect "metrics need a token" 401 '{"error":"missing bearer token"}'
+req GET /v1/metrics "$CIT";     expect "citizens may not read metrics" 403 '{"error":"not permitted"}'
+req GET /v1/metrics "$RESP";    expect "nor responders" 403 '{"error":"not permitted"}'
+MET="$(token --sub 104 --role citizen)"
+m a; [ "$STATUS" = 200 ] && jq -e '.runtime and .db and .process and .app' "$TMP/a.json" >/dev/null 2>&1 && ok "an admin reads them" || bad "metrics" "$STATUS $BODY"
+head="$(sql 'SELECT max(seq) FROM events')"
+for i in 1 2 3; do sync "$CIT" "region=1&after=$head"; done          # up to date
+sync "$CIT" "region=1&after=0&limit=2"; size="$(wc -c <"$TMP/body")" # has events
+D='{"eid":"'"$(eid 9001)"'","kind":5,"region":60,"status":1}'
+ev "$MET" "$D"; ev "$MET" "$D"                                      # stored, then a retry
+ev "${MET%?}" "$D"                                                   # refused token
+req GET /nothing
+m b
+grew "requests are counted" .runtime.requests 9
+grew "answers by class: success" .runtime.status_2xx 7
+grew "answers by class: client error" .runtime.status_4xx 2
+grew "stored events" .app.events_stored 1
+grew "duplicate retries" .app.duplicates 1
+grew "refused tokens" .app.auth_refused 1
+grew "one transaction per batch that touched the database" .db.commits 7
+[ $(( $(diff_of .app.sync_native) + $(diff_of .app.sync_quiet) + $(diff_of .app.sync_sql) )) = 4 ] && ok "every sync is counted once" || bad "sync counts" "$(jq -c .app "$TMP/b.json")"
+if [ "$(jq .app.native_on "$TMP/b.json")" = 1 ]; then grew "up-to-date answers skip the B-tree" .app.sync_quiet 3; grew "the others use the native plan" .app.sync_native 1
+else grew "with SQL forced, SQL answers" .app.sync_sql 4; fi
+[ "$(diff_of .app.sync_bytes)" -ge "$size" ] && ok "sync payload bytes" || bad "sync bytes" "$(diff_of .app.sync_bytes) < $size"
+jq -e '.runtime.connections_open >= 1 and .runtime.rings >= 1 and .runtime.uptime_s >= 0 and .process.rss_bytes > 1000000 and .process.cpu_user_us + .process.cpu_system_us > 0 and .app.head_seq > 0 and .db.wal_frames >= 0' "$TMP/b.json" >/dev/null 2>&1 \
+  && ok "gauges are plausible" || bad "gauges" "$(cat "$TMP/b.json")"
+jq -e '(.runtime.batch_us.bounds | length) == (.runtime.batch_us.counts | length) and (.runtime.batch_us.counts | add) == .runtime.jobs and (.app.native_ns.counts | add) == .app.sync_native' "$TMP/b.json" >/dev/null 2>&1 \
+  && ok "histograms add up" || bad "histograms" "$(jq -c '.runtime.batch_us, .runtime.jobs' "$TMP/b.json")"
+sleep 0.3; exec 3<>"/dev/tcp/127.0.0.1/$PORT"; sleep 0.3; m b; held="$(jq .runtime.connections_open "$TMP/b.json")"; exec 3<&- 3>&-; sleep 0.3; m a; after="$(jq .runtime.connections_open "$TMP/a.json")"
+[ $((held - after)) = 1 ] && ok "open connections rise and fall" || bad "open connections" "$held then $after"
+
 echo "-- bounded queues"
 BIG="$(printf '\\"%.0s' $(seq 280))"
 for i in $(seq 200); do n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":650,"body":"'"$BIG"'"}'; done

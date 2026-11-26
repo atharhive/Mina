@@ -81,8 +81,12 @@ static void *ckpt_main(void *arg) {
     while (!ckpt_wanted) pthread_cond_wait(&ckpt_cv, &ckpt_mu);
     pthread_mutex_unlock(&ckpt_mu);
     int nlog = 0, ndone = 0;
+    u64 start = clock_ns();
     int rc = sqlite3_wal_checkpoint_v2(ckpt_db, "main", SQLITE_CHECKPOINT_PASSIVE, &nlog, &ndone);
     if (rc != SQLITE_OK && rc != SQLITE_BUSY) fprintf(stderr, "checkpoint: %s\n", sqlite3_errmsg(ckpt_db));
+    __atomic_store_n(&stats.checkpoint_us_last, (clock_ns() - start) / 1000, __ATOMIC_RELAXED);
+    __atomic_store_n(&stats.checkpoint_frames, (u64)(ndone > 0 ? ndone : 0), __ATOMIC_RELAXED);
+    __atomic_fetch_add(&stats.checkpoints, 1, __ATOMIC_RELAXED);
     __atomic_store_n(&ckpt_wanted, 0, __ATOMIC_RELEASE);
   }
   return 0;
@@ -146,6 +150,7 @@ static void db_wal_bound(void) {
   int nlog = 0, ndone = 0;
   int rc = sqlite3_wal_checkpoint_v2(db, "main", SQLITE_CHECKPOINT_PASSIVE, &nlog, &ndone);
   if (rc == SQLITE_OK) wal_frames = 0;
+  stats.checkpoints_inline++;
   static i64 last;
   if (time(0) != last) { last = time(0); fprintf(stderr, "wal: %d frames, checkpointed in the request thread (%s)\n", nlog, rc == SQLITE_OK ? "ok" : sqlite3_errmsg(db)); }
 }
@@ -153,14 +158,16 @@ static void db_wal_bound(void) {
 /* Returns 0 if the batch committed. */
 static int db_batch_end(void) {
   db_in_batch = 0;
-  if (step_reset(st_commit) == SQLITE_DONE) { db_wal_bound(); return 0; }
+  if (step_reset(st_commit) == SQLITE_DONE) { stats.commits++; db_wal_bound(); return 0; }
   step_reset(st_rollback);
+  stats.rollbacks++;
   return -1;
 }
 
 /* Give up the batch: nothing in it is committed. */
 static void db_batch_abort(void) {
   db_in_batch = 0;
+  stats.rollbacks++;
   if (!sqlite3_get_autocommit(db)) step_reset(st_rollback);
 }
 

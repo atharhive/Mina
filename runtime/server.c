@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "rt.h"
+#include "stats.c"
 #include "out.c"
 #include "json.c"
 #include "jwt.c"
@@ -21,6 +22,7 @@
 #include "db.c"
 #include "uring.c"
 #include "assets.c"
+#include "metrics.c"
 #include "app_gen.c"
 
 int main(void) {
@@ -41,6 +43,7 @@ int main(void) {
   hmac_init((const u8 *)secret, strlen(secret));
   db_open(path);
   app_init();
+  server_started = time(0);
   transport_init(host, atoi(port), 600000);   /* connection capacity the rings are sized for */
   fprintf(stderr, "listening on %s:%s\n", host, port);
   transport_run();
