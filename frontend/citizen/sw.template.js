@@ -13,7 +13,9 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/v1/")) return;
-  const wanted = event.request.mode === "navigate" ? "/index.html" : event.request;
+  // only the app's own page: other applications on this server (/command/) are left alone
+  const page = event.request.mode === "navigate" && (url.pathname === "/" || url.pathname === "/index.html");
+  const wanted = page ? "/index.html" : event.request;
   // ignoreVary: these files are the same for every request, and a "Vary: Origin" header would
   // otherwise make the stored script miss when it is requested offline
   event.respondWith(caches.match(wanted, { cacheName: CACHE, ignoreVary: true }).then((hit) => hit ?? fetch(event.request)));

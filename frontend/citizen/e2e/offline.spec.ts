@@ -76,6 +76,14 @@ test("a report made offline survives a reload, is delivered once and acknowledge
   expect(errors).toEqual([]);
 });
 
+test("leaves the other applications of the server alone", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();                                      // now controlled by the service worker
+  await page.goto("/command/");
+  await expect(page.getByLabel("Access token")).toBeVisible();
+});
+
 test("says plainly that it is not an emergency service", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("not a replacement for official emergency services")).toBeVisible();
