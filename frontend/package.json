@@ -1,0 +1,9 @@
+{
+  "name": "mina-frontend",
+  "private": true,
+  "packageManager": "pnpm@10.33.1",
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

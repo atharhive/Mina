@@ -1,0 +1,21 @@
+{
+  "name": "@mina/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "dexie": "4.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "fake-indexeddb": "6.2.8",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
