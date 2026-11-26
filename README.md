@@ -5,7 +5,7 @@ Infrastructure for when infrastructure fails.
 MINA is an offline-first disaster communication system in development: one native C server on
 Linux io_uring and SQLite, with its application layer specified in Lean 4 and generated into C.
 
-**Status: Milestone D in progress.** The server API works end to end, and synchronisation runs on native
+**Status: Milestone D.** The server API works end to end, and synchronisation runs on native
 B-tree plans that are proved in Lean to equal the reference SQL, with differential tests of the
 C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU

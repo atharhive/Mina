@@ -214,6 +214,36 @@ Its JavaScript is 105.6 KB gzip (91,441 bytes brotli); the server binary with al
 applications is 2.99 MB. `tests/contract.sh` passes 173 of 173 (172 with `MINA_FORCE_SQL=1`,
 which has one check fewer), and the browser tests of all three applications pass.
 
+## Lighthouse
+
+`bench/lighthouse.sh 3`: Lighthouse 13.6.0, default mobile settings (simulated slow 4G, 4x CPU
+slowdown), Google Chrome headless, applications served by `bin/mina-server` on the same
+machine, 2026-11-26. Raw rows: `bench/reports/2026-11-26-lighthouse.jsonl`.
+
+| Page | Performance | Accessibility | Best practices | First paint | Largest paint | Blocking | Bytes transferred |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Citizen `/` | 100 | 100 | 100 | 0.75 s | 1.65 s | 0 ms | about 95 KB |
+| Command `/command/` (sign-in) | 100 | 100 | 100 | 0.75 s | 0.75 to 1.50 s | 0 ms | about 96 KB |
+| Observatory `/observatory/` | 100 | 100 (98 before a landmark fix) | 100 | 0.75 s | 0.75 to 1.50 s | 0 ms | about 95 KB |
+
+These measure the first screen. They say nothing about a signed-in dashboard full of data (next
+section), a real phone or a real network.
+
+## Responder dashboard with a large region
+
+`MINA_PERF=1 npx playwright test perf` in `frontend/command`: 20,000 seeded events (7,045
+incidents) in one area, desktop Chrome, one run per row, 2026-11-26.
+
+| Build | Page elements | Click to paint | Time blocked while loading | All events on the device |
+|---|---:|---|---|---:|
+| Whole list rendered | 49,547 | 304 to 375 ms | 15.4 s in 69 long tasks, longest 435 ms | 59.8 s |
+| 200 rows at a time (`9ae6de0`) | 1,634 | 22 to 31 ms | none | 38.6 s |
+| and backlog fetched without waiting (`55c0a03`) | 1,634 | 25 to 31 ms | none | 27.1 s |
+| and the position plot added | 1,768 | 22 to 32 ms | none | 27.4 s |
+
+The remaining load time has not been profiled; the dashboard re-reads all stored events after
+each page it saves, which is the first thing to look at.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.
