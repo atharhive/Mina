@@ -79,6 +79,25 @@ test("a responder handles incidents of their region", async ({ page, context }) 
   await report({ kind: 1, region: 7, category: 2, body: "Family on a balcony" });     // arrives while watching
   await expect(list).toContainText("Family on a balcony", { timeout: 30_000 });
 
+  // the link drops and the page is reopened: the dashboard and what it holds are still there
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByRole("list", { name: "Incidents" })).toContainText("Family on a balcony");
+  await expect(page.getByRole("status", { name: "Connection" })).toContainText("Offline");
+  // the citizen app, installed on the same server, still opens offline too: neither cache removed the other
+  await context.setOffline(false);
+  await page.goto("/");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await expect.poll(() => page.evaluate(async () => (await caches.keys()).map((k) => k.replace(/-[0-9a-f]+$/, "")).sort().join()))
+    .toBe("mina-citizen,mina-command");
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByLabel("Your area number")).toBeVisible();
+  await page.goto("/command/");
+  await expect(page.getByRole("list", { name: "Incidents" })).toContainText("Family on a balcony");
+  await context.setOffline(false);
+
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByLabel("Access token")).toBeVisible();
   // nothing about other people stays on the device
