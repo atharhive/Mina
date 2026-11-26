@@ -276,7 +276,8 @@ FLOOD="$(token --sub 900 --role citizen)"; accepted=0; limited=0; other=
 for i in $(seq 40); do report "$FLOOD"; case $STATUS in 201) accepted=$((accepted+1)) ;; 429) limited=$((limited+1)) ;; *) other=$STATUS ;; esac; done
 [ -z "$other" ] && [ $accepted -ge 30 ] && [ $accepted -le 33 ] && [ $limited = $((40-accepted)) ] \
   && ok "a citizen may send a burst of 30, then is limited ($accepted accepted)" || bad "citizen limit" "accepted $accepted limited $limited other $other"
-report "$FLOOD"; [ $STATUS = 429 ] && expect "limited answer" 429 '{"error":"too many requests"}'
+for i in 1 2 3; do report "$FLOOD"; [ $STATUS = 429 ] && break; done      # a second may pass and refill one
+expect "limited answer" 429 '{"error":"too many requests"}'
 [ "$(sql 'SELECT count(*) FROM events WHERE actor=900 AND seq > 0')" -le $((accepted+1)) ] && ok "limited submissions store nothing" || bad "limited rows"
 report "$(token --sub 901 --role citizen)"; [ $STATUS = 201 ] && ok "another citizen is unaffected" || bad "isolation" "$STATUS"
 sleep 2.1; report "$FLOOD"; [ $STATUS = 201 ] && ok "the budget refills" || bad "refill" "$STATUS"
