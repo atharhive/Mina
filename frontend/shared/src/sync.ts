@@ -1,10 +1,13 @@
 import type { MinaApi, Session } from "./api";
+import { readToken, type Responder } from "./identity";
 import { backoffMs } from "./backoff";
 import type { MinaDb, OutboxItem } from "./db";
 import { KIND_RULES, checkSubmission, type Submission } from "./protocol";
 
 export interface Clock { now(): number; random(): number }
-const PAGE = 64;
+/** "own": a citizen device asks the server for an identity when it needs one. "given": a
+ * responder signs in with an issued token, and is signed out if the server refuses it. */
+export interface Options { identity?: "own" | "given"; page?: number }
 const MAX_PAGES = 20;          // per pull; the next run continues from the cursor
 
 const eventId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -15,7 +18,18 @@ export class SyncEngine {
   private again = false;
 
   constructor(private readonly db: MinaDb, private readonly api: MinaApi,
-    private readonly clock: Clock = { now: Date.now, random: Math.random }) {}
+    private readonly clock: Clock = { now: Date.now, random: Math.random }, private readonly options: Options = {}) {}
+
+  /** Keep an issued token on this device. Throws if it cannot be used. */
+  async signIn(token: string): Promise<Responder> {
+    const responder = readToken(token, this.clock.now() / 1000);
+    await this.db.meta.put({ key: "session", value: responder });
+    return responder;
+  }
+
+  async identity(): Promise<Session | undefined> {
+    return (await this.db.meta.get("session"))?.value as Session | undefined;
+  }
 
   /** Save a report on this device. Resolves once it is stored; sending happens separately. */
   async submit(submission: Submission): Promise<OutboxItem> {
@@ -93,7 +107,7 @@ export class SyncEngine {
     for (let page = 0; page < MAX_PAGES; page++) {
       const token = await this.token();
       if (!token) return;
-      const reply = await this.api.sync(token, region, await this.cursor(region), PAGE);
+      const reply = await this.api.sync(token, region, await this.cursor(region), this.options.page ?? 64);
       if (reply.ok) {
         const { events, next, more } = reply.value;
         await this.db.transaction("rw", this.db.events, this.db.meta, async () => {
@@ -115,8 +129,9 @@ export class SyncEngine {
   }
 
   private async token(): Promise<string | undefined> {
-    const kept = (await this.db.meta.get("session"))?.value as Session | undefined;
+    const kept = await this.identity();
     if (kept && kept.exp - 60 > this.clock.now() / 1000) return kept.token;
+    if (this.options.identity === "given") return undefined;
     const reply = await this.api.session();
     if (!reply.ok) return undefined;
     await this.db.meta.put({ key: "session", value: reply.value });
