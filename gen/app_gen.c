@@ -104,17 +104,11 @@ static void native_init(void) {
 static void app_init(void) {
   if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
   Q_health = db_prepare("SELECT 1");
-  Q_by_eid = db_prepare("SELECT seq, incident, actor FROM events WHERE eid = ?1");
-  /* seq is assigned here, in the writing transaction; a new report opens the incident of the
-   * same number. */
-  Q_event_insert = db_prepare(
-      "INSERT INTO events (seq, eid, region, vis, kind, incident, category, status, actor, ts, at, lat, lon, body) "
-      "SELECT s, ?1, ?2, ?3, ?4, CASE WHEN ?4 = 1 THEN s ELSE ?5 END, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 "
-      "FROM (SELECT coalesce(max(seq), 0) + 1 AS s FROM events) WHERE true RETURNING seq, incident");
-  Q_incident_insert = db_prepare(
-      "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)");
-  Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = ?1");
-  Q_incident_update = db_prepare("UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1");
+  Q_by_eid = db_prepare("SELECT seq, incident, actor FROM events WHERE eid = \?1");
+  Q_event_insert = db_prepare("INSERT INTO events (seq, eid, region, vis, kind, incident, category, status, actor, ts, at, lat, lon, body) SELECT s, \?1, \?2, \?3, \?4, CASE WHEN \?4 = 1 THEN s ELSE \?5 END, \?6, \?7, \?8, \?9, \?10, \?11, \?12, \?13 FROM (SELECT coalesce((SELECT max(seq) FROM events), 0) + 1 AS s) WHERE true RETURNING seq, incident");
+  Q_incident_insert = db_prepare("INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (\?1, \?2, \?3, \?4, \?5, \?1)");
+  Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = \?1");
+  Q_incident_update = db_prepare("UPDATE incidents SET status = \?2, updated_seq = \?3 WHERE id = \?1");
   Q_sync_public = db_prepare("SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 0 AND seq > \?2 ORDER BY seq LIMIT \?3");
   Q_sync_all = db_prepare("SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 0 AND seq > \?2 UNION ALL SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 1 AND seq > \?2 ORDER BY 1 LIMIT \?3");
   Q_head = db_prepare("SELECT coalesce(max(seq), 0) FROM events");

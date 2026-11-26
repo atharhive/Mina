@@ -251,11 +251,6 @@ for role in "$CIT:0" "$RESP:1"; do
   done
   [ "$all" = "$(want_events 1 "${role##*:}" 0 1000)" ] && ok "pages of 3 deliver every event once, in order (vis <= ${role##*:}, $pages pages)" || bad "pagination" "$all"
 done
-grep -v '^--' "$ROOT/gen/queries.sql" 2>/dev/null | tr '\n' ' ' | tr ';' '\n' | grep SELECT >"$TMP/queries"
-plans=; while read -r q; do plans+="$(sql "EXPLAIN QUERY PLAN $q")"$'\n'; done <"$TMP/queries"
-[ "$(grep -c 'events_region_vis (region=? AND vis=? AND rowid>?)' <<<"$plans")" = 3 ] && grep -q 'SEARCH i USING INTEGER PRIMARY KEY' <<<"$plans" && ! grep -E 'TEMP B-TREE|SCAN (events|incidents)' <<<"$plans" | grep -qv 'SCAN events USING COVERING INDEX events_region_vis' \
-  && [ "$(grep -c 'SCAN events' <<<"$plans")" = 1 ] \
-  && ok "reference queries use the indexes without sorting; only the startup heads query scans one" || bad "query plans" "$plans"
 
 echo "-- incident retrieval"
 n=$((n+1)); ev "$CIT" '{"eid":"'"$(eid $n)"'","kind":1,"region":2,"category":5,"body":"no water","lat":10,"lon":-20,"at":99}'

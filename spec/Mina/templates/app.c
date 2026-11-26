@@ -56,17 +56,11 @@ static void native_init(void) {
 static void app_init(void) {
   if (!schema_check()) { fprintf(stderr, "fatal: the database does not have the MINA schema\n"); exit(1); }
   Q_health = db_prepare("SELECT 1");
-  Q_by_eid = db_prepare("SELECT seq, incident, actor FROM events WHERE eid = ?1");
-  /* seq is assigned here, in the writing transaction; a new report opens the incident of the
-   * same number. */
-  Q_event_insert = db_prepare(
-      "INSERT INTO events (seq, eid, region, vis, kind, incident, category, status, actor, ts, at, lat, lon, body) "
-      "SELECT s, ?1, ?2, ?3, ?4, CASE WHEN ?4 = @{KIND_SOS} THEN s ELSE ?5 END, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 "
-      "FROM (SELECT coalesce(max(seq), 0) + 1 AS s FROM events) WHERE true RETURNING seq, incident");
-  Q_incident_insert = db_prepare(
-      "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)");
-  Q_incident_state = db_prepare("SELECT region, category, status FROM incidents WHERE id = ?1");
-  Q_incident_update = db_prepare("UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1");
+  Q_by_eid = db_prepare(@{SQL_BY_EID});
+  Q_event_insert = db_prepare(@{SQL_EVENT_INSERT});
+  Q_incident_insert = db_prepare(@{SQL_INCIDENT_INSERT});
+  Q_incident_state = db_prepare(@{SQL_INCIDENT_STATE});
+  Q_incident_update = db_prepare(@{SQL_INCIDENT_UPDATE});
   Q_sync_public = db_prepare(@{SQL_SYNC_PUBLIC});
   Q_sync_all = db_prepare(@{SQL_SYNC_ALL});
   Q_head = db_prepare(@{SQL_HEAD});

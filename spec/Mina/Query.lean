@@ -31,6 +31,32 @@ def incident : String :=
 /-- The newest sequence number of every stream (`Db.headOf`), read once at startup. -/
 def heads : String := "SELECT region, vis, max(seq) FROM events GROUP BY region, vis"
 
-def all : List String := [syncPublic, syncAll, head, incident, heads]
+/-! ## Writes
+
+Statements the writer runs inside the batch transaction. -/
+
+/-- The stored row of an event id. -/
+def byEid : String := "SELECT seq, incident, actor FROM events WHERE eid = ?1"
+
+/-- `seq` is assigned here, in the writing transaction; a new report opens the incident of the
+same number. The newest number is read by a subquery of its own: written as
+`SELECT max(seq) + 1 FROM events` inside the source, SQLite scans a whole index on every insert
+(`tests/plans.sh`). -/
+def eventInsert : String :=
+  "INSERT INTO events (seq, eid, region, vis, kind, incident, category, status, actor, ts, at, lat, lon, body) " ++
+  s!"SELECT s, ?1, ?2, ?3, ?4, CASE WHEN ?4 = {Domain.Kind.sosCreated.code} THEN s ELSE ?5 END, " ++
+  "?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 " ++
+  "FROM (SELECT coalesce((SELECT max(seq) FROM events), 0) + 1 AS s) WHERE true RETURNING seq, incident"
+
+def incidentInsert : String :=
+  "INSERT INTO incidents (id, owner, region, category, status, updated_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?1)"
+
+def incidentState : String := "SELECT region, category, status FROM incidents WHERE id = ?1"
+
+def incidentUpdate : String := "UPDATE incidents SET status = ?2, updated_seq = ?3 WHERE id = ?1"
+
+/-- Every statement the server prepares, apart from the health check. -/
+def all : List String :=
+  [syncPublic, syncAll, head, incident, heads, byEid, eventInsert, incidentInsert, incidentState, incidentUpdate]
 
 end Mina.Query
