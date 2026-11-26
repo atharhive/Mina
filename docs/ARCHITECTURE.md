@@ -44,6 +44,15 @@ Synchronisation reads come from native B-tree plans, everything else from SQL. W
 | A connection that sent a write is held until its batch commits (keeps order) | `uring.c: conn_hold`, `release_holds` |
 | After a light round (< 64 jobs) the loop sleeps 250 us so the next round batches | `uring.c: transport_run` |
 
+## Web application
+
+`./build.sh web` builds the citizen app and `tools/embed-assets.mjs` writes each file as complete
+responses: brotli, gzip (each only if smaller), plain, and "304 Not Modified". `runtime/assets.c`
+sends them from read-only memory, without copies or file access, for a `GET` that matches no API
+route. Paths match exactly. Files under `assets/` carry a hash in their name and are cached for
+good; the others are revalidated by entity tag. Responses set a same-origin content security
+policy. A plain `./build.sh` embeds nothing.
+
 ## Bounds
 
 | Bound | Value | When reached |
@@ -92,7 +101,7 @@ and the role codes from `domain.h`.
 |---|---|---|
 | Lost eventfd wakeups on some kernels | Worked around with a 1 ms bounded idle wait; costs idle CPU (measured in BASELINE.md) | E: evaluate a single ring that blocks in `io_uring_enter` |
 | Ring memory counts against `RLIMIT_MEMLOCK` | With the 8 MB default, an immediate restart can fail with `io_uring_setup: Cannot allocate memory` | B/F: raise the limit in the service unit; retry on start |
-| No TLS | Tokens and reports cross the network in the clear unless a proxy terminates TLS | F |
+| No TLS | Tokens and reports cross the network in the clear unless a proxy terminates TLS; without HTTPS, browsers away from `localhost` also refuse the service worker, so the app does not work offline | F |
 | The session limit is server-wide | One abusive client can stop new citizens from getting a session | F: limit by source address, here or at the proxy |
 | The citizen limit is per identity | An abuser can rotate identities, at up to the session rate | F |
 | No token revocation | A leaked token works until it expires; replacing `MINA_SECRET` revokes all of them | later |

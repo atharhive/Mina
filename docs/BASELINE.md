@@ -173,6 +173,11 @@ Reading these numbers:
 
 The stylesheet adds 2.72 KB. Lighthouse has not been run.
 
+As served by the server (brotli): JavaScript 90,032 bytes, stylesheet 2,348 bytes, against
+333,656 and 9,254 uncompressed. Embedding the app grows the server binary from 1.30 MB to
+1.87 MB. With the web build, `tests/contract.sh` passes 155 of 155, `tests/assets.sh` 40 of 40
+on release and sanitizer builds, and the browser test passes against the server alone.
+
 Decision (2026-11-26): React is kept, 5 KB over the budget. The difference costs a first visit
 only, since the service worker then holds the application; at 50 kbit/s, 61 KB is about 10 s.
 Revisit if the bundle grows.

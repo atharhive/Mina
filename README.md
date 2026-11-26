@@ -10,8 +10,8 @@ B-tree plans that are proved in Lean to equal the reference SQL, with differenti
 C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
-TLS exists yet. The citizen web app works offline in development; the server does not serve it
-yet. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+TLS exists yet. The server serves the citizen web app itself; its offline features need HTTPS
+anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
 MINA is not a replacement for official emergency services.
 
@@ -33,9 +33,11 @@ tests/seed.sh           # the synthetic data generator
 tests/proofs.sh         # the theorems and the axioms they use
 tests/diff.sh           # native read plans against the reference SQL
 tests/plans.sh          # no statement scans or sorts
+tests/assets.sh         # serving a web application from memory
 bench/micro.sh          # their cost, in process
 
 ./build.sh sanitize     # bin/mina-server-san, bin/mina-admin-san
+MINA_BUILD=sanitize tests/assets.sh
 MINA_ADMIN=$PWD/bin/mina-admin-san tests/contract.sh bin/mina-server-san
 ```
 
@@ -108,9 +110,13 @@ Needs Node 22 and pnpm; the end-to-end test also needs Google Chrome.
 ```bash
 cd frontend && pnpm install
 pnpm test                      # outbox and sync, including a run against the built server
-pnpm --dir citizen e2e         # report offline, reconnect, delivered, resolved
 pnpm --dir citizen dev         # development server; proxies /v1 to 127.0.0.1:8080
+cd .. && ./build.sh web        # compile the app into bin/mina-server
+cd frontend && pnpm --dir citizen e2e    # report offline, reconnect, delivered, resolved
 ```
+
+With the `web` build, open `http://127.0.0.1:8080`. Browsers allow service workers and location
+only on `localhost` or over HTTPS, so on a phone the app needs a TLS proxy in front of the server.
 
 ## Layout
 
