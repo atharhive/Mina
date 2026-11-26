@@ -83,7 +83,7 @@ All bodies are JSON. Every route except health and session needs `Authorization:
 | `GET /v1/health` | `{"status","db","uptime_s"}` |
 | `POST /v1/session` | 201 `{"token","sub","exp"}`: a new citizen identity |
 | `POST /v1/events` | 201 `{"seq","incident"}`; a retry: 200 with the same and `"duplicate":true` |
-| `GET /v1/sync?region=R&after=C&limit=N` | `{"head","events","next","more"}`; `N` up to 256; 409 `resync` if `C > head` |
+| `GET /v1/sync?region=R&after=C&limit=N` | `{"head","generation","events","next","more"}`; `N` up to 256; 409 `resync` if `C > head`; `generation` changes after a restore |
 | `GET /v1/incidents/:id` | responders: summary and report; the reporter: summary |
 | `GET /v1/metrics` | admins only: counters and histograms of the server |
 
@@ -119,10 +119,11 @@ tools/backup.sh mina.db backups/mina-$(date +%F-%H%M).db      # while the server
 tools/restore.sh backups/<file> mina.db                       # with the server stopped
 ```
 
-A restore keeps the replaced database aside and moves sequence numbers forward, so that clients
-that had read past the backup still receive what comes next. **Events accepted after the backup
-are lost, and phones that showed them as delivered do not send them again.** Back up often, and
-copy backups off the machine.
+A restore keeps the replaced database aside, moves sequence numbers forward and gives the
+database a new generation. A client that synchronises afterwards reads again from the start and
+sends again, with the same event ids, whatever it had been told was stored. **What was accepted
+after the backup from a device that never reconnects is lost.** Back up often, and copy backups
+off the machine.
 
 ## Web app
 

@@ -111,6 +111,14 @@ row (kind 0, restricted) 1,000,000,000 sequence numbers ahead. Without that, new
 reuse numbers that clients had already read past, and cursor synchronisation would skip them:
 `no_skip` assumes numbers are never reused.
 
+The restore also gives the database a new generation (`PRAGMA user_version`, random), read at
+startup and sent in every sync answer. A client that sees it change, or whose cursor is ahead of
+the server (409 `resync`), discards what it read, queues everything it had been told was stored
+and sends it again. Event ids are unchanged, so events the backup holds are answered as
+duplicates. Not recovered: events from devices that never return; a transition on an incident
+that was lost, since the resent report gets a new number (the responder sees it refused); and,
+if the device's identity changed since, only the confirmation of events the server still has.
+
 ## Native read plans
 
 `GET /v1/sync` does not run SQL. It seeks the `events_region_vis` index just past the client's
@@ -142,5 +150,5 @@ and the role codes from `domain.h`.
 | Anyone with a token can read any public stream | Alerts and redacted updates are public | by design |
 | Chunked request bodies are rejected | Clients must send `Content-Length` | documented |
 | Parsers fuzzed by random mutation only, without coverage guidance | Defects on rare paths may remain | F: coverage-guided fuzzing when clang is available |
-| Restoring a backup loses what came after it, and clients do not resend it | A delivered report can silently disappear | later: a database generation in sync answers, so that clients resend what the restored server no longer has |
+| After a restore, only returning clients resend | Reports from a device that never reconnects are lost; responder actions on lost incidents are refused | frequent backups copied off the machine |
 | One writer process, one server | No redundancy, no backups yet | documented; backups in F |

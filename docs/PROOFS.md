@@ -50,7 +50,8 @@ the runtime or SQLite are correct.
 5. **Visibility in order.** Sequence numbers are assigned inside the writing transaction and
    rows are never updated or deleted, so events become visible in sequence order. `no_skip`
    depends on this. Restoring a backup would break it by reusing numbers; `tools/restore.sh`
-   jumps ahead of them, which keeps the store ordered with a gap.
+   jumps ahead of them, which keeps the store ordered with a gap. Resending after a restore is
+   ordinary submission of the same event ids (`apply_idem` covers those the backup holds).
 6. **Generation.** The C transition and validation tables are printed from `Mina.Domain` by a
    generator that is not itself proved.
 

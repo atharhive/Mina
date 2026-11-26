@@ -57,7 +57,7 @@ beside the SQL.
 | C | Done except the Lean oracle: model, invariant, plans, sync, transitions; native plans; differential tests | theorems checked; no mismatch in 10^6 requests; native vs SQL measured (see BASELINE.md) |
 | D | Done: outbox, sync, the three applications served by the server, `/v1/metrics`, offline reopening, position view, large-list and Lighthouse measurements. A basemap and real-phone testing are in PENDING.md. Later: update the incident list incrementally while loading a long backlog | bundle sizes and Lighthouse measured; offline create, reconnect, delivered |
 | E | Started: MINA workload to 100K locally, one fix (`docs/OPTIMIZATION_LOG.md`). Next: alternating repeated runs of native reads against SQL; a steadier benchmark setup. Profile, change one thing, measure, keep or revert; then AWS | results per step; AWS cost approved first |
-| F | Started: `kill -9` recovery, mutation fuzzing, crisis workloads, durability setting, backup and restore done. Remaining: power loss in a virtual machine, coverage-guided fuzzing, secure (TLS) category, clients resending after a restore | no lost acknowledged event, no duplicate |
+| F | Started: `kill -9` recovery, mutation fuzzing, crisis workloads, durability setting, backup, restore and resending after a restore done. Remaining: power loss in a virtual machine, coverage-guided fuzzing, secure (TLS) category | no lost acknowledged event, no duplicate |
 | G | Final report, then stop | publication approved separately |
 
 ## Frontend
