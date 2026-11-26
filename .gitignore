@@ -30,3 +30,6 @@ CLAUDE.md
 # browser test output
 test-results/
 playwright-report/
+
+# local notes and drafts, never pushed
+local/
