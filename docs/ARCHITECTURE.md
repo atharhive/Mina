@@ -98,8 +98,8 @@ second thread with its own connection (`db.c: wal_hook`, `ckpt_main`); the reque
 checkpoints itself only if the log passes 16,384 frames.
 
 A write is answered only after its batch has committed. With `synchronous=NORMAL` a committed
-write survives a process crash but may be lost on power failure; the choice against `FULL` is to
-be measured. Neither case has been tested yet (Milestone F).
+write survives a process crash (tested, `tests/crash.mjs`) but may be lost on power failure,
+which has not been tested; the choice against `FULL` is still to be measured.
 
 ## Native read plans
 
@@ -131,5 +131,5 @@ and the role codes from `domain.h`.
 | Citizens may report in any region | Region scoping protects reading, not submitting | by design; revisit with real data |
 | Anyone with a token can read any public stream | Alerts and redacted updates are public | by design |
 | Chunked request bodies are rejected | Clients must send `Content-Length` | documented |
-| Custom HTTP and JSON parsers are not fuzzed | Unknown defects | F |
+| Parsers fuzzed by random mutation only, without coverage guidance | Defects on rare paths may remain | F: coverage-guided fuzzing when clang is available |
 | One writer process, one server | No redundancy, no backups yet | documented; backups in F |

@@ -244,6 +244,36 @@ incidents) in one area, desktop Chrome, one run per row, 2026-11-26.
 The remaining load time has not been profiled; the dashboard re-reads all stored events after
 each page it saves, which is the first thing to look at.
 
+## Crash recovery
+
+`node tests/crash.mjs`: 32 clients submit reports and transitions while the server is killed
+with `SIGKILL` at random moments and started again; unanswered requests are retried with the same
+event id. Afterwards the database is compared with what the clients were told.
+2026-11-26, ext4 and tmpfs-backed temporary directory of this machine.
+
+| Run | Crashes | Events acknowledged | Lost, changed or duplicated | Failed restarts |
+|---|---:|---:|---:|---:|
+| Release build, seed 1 | 26 | 52,465 | 0 | 0 |
+| Release build, seed 99 | 26 | 56,488 | 0 | 0 |
+| ASan and UBSan build, 15 requested | 16 | 24,330 | 0 | 0 |
+
+The database passed `PRAGMA integrity_check`, sequence numbers had no gaps, every incident
+agreed with its last event, and synchronisation after recovery matched SQL. With a bug planted
+that reports success for a rolled-back transaction, the test fails. This is a **process** crash:
+the operating system kept running. Power loss has not been tested, and with
+`synchronous=NORMAL` recently acknowledged writes may be lost then.
+
+## Fuzzing
+
+| Test | What ran | Result |
+|---|---|---|
+| `tests/fuzz.sh 60 <seed>`, seeds 1 to 4: HTTP framing, route and request decoders, JSON, tokens; exact-size buffers, ASan and UBSan | 19.8 million rounds, every outcome type reached | no report |
+| The same with `find_head_end` or the `\u` escape check made to read past the end (copy) | | each found within the run |
+| `node tests/netfuzz.mjs 45 <seed>`, seeds 1 to 3: damaged and pipelined requests in random pieces, closed or unread connections, sanitizer build | 424,613 requests | no report; afterwards no connection or queued answer left behind |
+
+The fuzzer mutates seed requests without coverage guidance (clang is not installed), so it
+explores less deeply than libFuzzer or AFL would.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.

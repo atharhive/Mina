@@ -36,6 +36,9 @@ tests/proofs.sh         # the theorems and the axioms they use
 tests/diff.sh           # native read plans against the reference SQL
 tests/plans.sh          # no statement scans or sorts
 tests/assets.sh         # serving a web application from memory
+node tests/crash.mjs    # kill the server under load, check nothing acknowledged is lost
+tests/fuzz.sh 60        # fuzz the parsers under sanitizers
+node tests/netfuzz.mjs  # fuzz the transport (after ./build.sh sanitize)
 bench/micro.sh          # their cost, in process
 
 ./build.sh sanitize     # bin/mina-server-san, bin/mina-admin-san
