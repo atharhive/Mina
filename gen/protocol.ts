@@ -55,6 +55,21 @@ export const TRANSITIONS: ReadonlyArray<{ kind: number; source: number; target: 
 /** A synchronised event is an array with these members, in this order. */
 export const EVENT_COLUMNS = ["seq", "kind", "ts", "incident", "category", "status", "body", "lat", "lon", "at"] as const;
 
+/** Theorems about the model (Mina.Verified; docs/PROOFS.md). */
+export const VERIFIED: ReadonlyArray<{ name: string; statement: string }> = [
+  { name: "syncPlan_eq", statement: "The native index scan returns exactly what the reference query returns." },
+  { name: "syncAllPlan_eq", statement: "Merging the two streams of a region returns exactly the responder query." },
+  { name: "head_empty", statement: "A cursor at or past a stream's newest event has an empty answer." },
+  { name: "head_preserved", statement: "Updating the remembered newest number at each insert keeps it exact." },
+  { name: "apply_idem", statement: "Submitting an event twice is submitting it once." },
+  { name: "cursor_mono", statement: "A synchronisation cursor never goes back." },
+  { name: "pages_compose", statement: "Two pages read in turn equal one longer page." },
+  { name: "no_skip", statement: "No event up to the returned cursor is missed, even as events are appended." },
+  { name: "resolved_is_final", statement: "A resolved incident cannot change again." },
+  { name: "updates_are_public", statement: "Public incident updates cannot carry a report's text or location." },
+  { name: "citizens_cannot_update", statement: "Citizens cannot change an incident's status." },
+];
+
 export const LIMITS = {
   maxRegion: 1024,
   maxBodyChars: 280,

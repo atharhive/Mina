@@ -2,6 +2,7 @@ import Mina.Domain
 import Mina.Schema
 import Mina.Contract
 import Mina.Query
+import Mina.Verified
 
 /-!
 # The protocol for the web client
@@ -47,6 +48,10 @@ def emitProtocolTs : String :=
   "];\n\n" ++
   "/** A synchronised event is an array with these members, in this order. */\n" ++
   s!"export const EVENT_COLUMNS = {list ((Query.eventColumns.splitOn ", ").map quote)} as const;\n\n" ++
+  "/** Theorems about the model (Mina.Verified; docs/PROOFS.md). */\n" ++
+  "export const VERIFIED: ReadonlyArray<{ name: string; statement: string }> = [\n" ++
+  String.join (Verified.theorems.map fun (n, s) => s!"  \{ name: {quote n.toString}, statement: {quote s} },\n") ++
+  "];\n\n" ++
   "export const LIMITS = {\n" ++
   s!"  maxRegion: {maxRegion},\n  maxBodyChars: {Schema.maxBodyChars},\n  maxLatitude: {maxLatitude},\n" ++
   s!"  maxLongitude: {maxLongitude},\n  syncMaxLimit: {Contract.syncMaxLimit},\n" ++
