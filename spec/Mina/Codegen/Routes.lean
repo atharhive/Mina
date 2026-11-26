@@ -5,6 +5,7 @@ import Mina.Codegen.C
 # Route matching
 
 `app_decode` is a chain of constant-prefix comparisons, one block per route, in contract order.
+A `GET` that matches no route may be a file of the web application (`runtime/assets.c`).
 -/
 namespace Mina.Codegen
 open Mina.Wire
@@ -35,7 +36,9 @@ def emitRoute (r : Route) : String :=
 
 def emitDecode (routes : List Route) (fallback : ErrorCase) : String :=
   "static void app_decode(const req_t *rq, job_t *j) {\n  const u8 *p = rq->path;\n  u32 n = rq->path_len;\n" ++
-  "\n".intercalate (routes.map emitRoute) ++ s!"\n  j->resp = ERR({fallback.name});\n}\n"
+  "\n".intercalate (routes.map emitRoute) ++
+  "\n  if (rq->method == M_GET && (j->resp = asset_serve(rq))) return;   /* the web application */" ++
+  s!"\n  j->resp = ERR({fallback.name});\n}\n"
 
 def emitKinds (endpoints : List Endpoint) : String :=
   "enum { " ++ ", ".intercalate ("K_NONE = 0" :: endpoints.map (·.kind)) ++ " };"

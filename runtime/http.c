@@ -83,6 +83,10 @@ static int http_parse(const u8 *p, u32 n, req_t *r) {
     switch (nl) {
     case 13:
       if (lower(ls[0]) == 'a' && !strncasecmp((const char *)ls, "authorization", 13)) { r->auth = v; r->auth_len = vl; r->has_auth = 1; }
+      else if (lower(ls[0]) == 'i' && !strncasecmp((const char *)ls, "if-none-match", 13)) { r->if_none_match = v; r->if_none_match_len = vl; }
+      break;
+    case 15:
+      if (lower(ls[0]) == 'a' && !strncasecmp((const char *)ls, "accept-encoding", 15)) { r->accept_encoding = v; r->accept_encoding_len = vl; }
       break;
     case 14:
       if (lower(ls[0]) == 'c' && !strncasecmp((const char *)ls, "content-length", 14)) {

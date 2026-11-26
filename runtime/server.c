@@ -20,6 +20,7 @@
 #include "http.c"
 #include "db.c"
 #include "uring.c"
+#include "assets.c"
 #include "app_gen.c"
 
 int main(void) {

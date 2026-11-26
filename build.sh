@@ -5,7 +5,9 @@
 #   2. The C compiler builds one translation unit: SQLite (pinned, checksummed), the runtime,
 #      and the generated code.
 #
-#   ./build.sh            optimised binaries
+#   ./build.sh            optimised binaries (no web application: GET / answers 404)
+#   ./build.sh web        the same, with the citizen web application compiled into the server
+#                         (needs node and pnpm). MINA_WEB=<dir> embeds another directory.
 #   ./build.sh sanitize   bin/mina-server-san and bin/mina-admin-san, with ASan and UBSan
 #
 # Needs: elan/lake (or LAKE=/path/to/lake), a C compiler, curl, unzip, sha256sum.
@@ -33,16 +35,28 @@ for f in app_gen.c domain.h protocol.ts queries.sql schema.sql; do
   fi
 done
 
+WEB=
 case "${1:-}" in
   "")       SUF=;     OPT=(-O2 -march=native -fno-plt) ;;
+  web)      SUF=;     OPT=(-O2 -march=native -fno-plt); WEB=frontend/citizen/dist
+            echo "== web: build the citizen application"
+            (cd frontend && pnpm install --frozen-lockfile --silent && pnpm --silent --dir citizen build >/dev/null) ;;
   sanitize) SUF=-san; OPT=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all) ;;
-  *) echo "usage: ./build.sh [sanitize]" >&2; exit 2 ;;
+  *) echo "usage: ./build.sh [web|sanitize]" >&2; exit 2 ;;
 esac
+WEB="${MINA_WEB:-$WEB}"
+SUF="${MINA_SUFFIX:-$SUF}"
+mkdir -p "build/assets$SUF"
+if [ -n "$WEB" ]; then
+  node tools/embed-assets.mjs "$WEB" >"build/assets$SUF/assets_gen.h"
+else
+  printf 'static const asset ASSETS[1];\n#define ASSET_COUNT 0\n' >"build/assets$SUF/assets_gen.h"
+fi
 
 echo "== cc"
 cc "${OPT[@]}" -pthread -o "bin/mina-server$SUF" \
   -DSQLITE_THREADSAFE=2 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE \
   -DSQLITE_USE_ALLOCA -DSQLITE_DQS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 \
-  -Iruntime -Ibuild -I"vendor/$SQLITE" runtime/server.c -lm
+  -Iruntime -Ibuild -I"build/assets$SUF" -I"vendor/$SQLITE" runtime/server.c -lm
 cc "${OPT[@]}" -Iruntime -Ibuild -Itools -o "bin/mina-admin$SUF" tools/mina-admin.c
 echo "built bin/mina-server$SUF bin/mina-admin$SUF"

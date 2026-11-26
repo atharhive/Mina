@@ -30,6 +30,8 @@ typedef struct {
   const u8 *path; u32 path_len;      /* without the query string */
   const u8 *query; u32 query_len;    /* after the '?', if any */
   const u8 *auth; u32 auth_len;      /* Authorization header value */
+  const u8 *accept_encoding; u32 accept_encoding_len;
+  const u8 *if_none_match; u32 if_none_match_len;
   const u8 *body; u32 body_len;
 } req_t;
 

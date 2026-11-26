@@ -413,6 +413,7 @@ static void app_decode(const req_t *rq, job_t *j) {
       return;
     }
   }
+  if (rq->method == M_GET && (j->resp = asset_serve(rq))) return;   /* the web application */
   j->resp = ERR(NOT_FOUND);
 }
 

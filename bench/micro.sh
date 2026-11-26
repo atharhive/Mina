@@ -14,7 +14,7 @@ trap 'rm -rf "$TMP"' EXIT
 cc -O2 -march=native -fno-plt -pthread -Wno-unused-function -o "$TMP/micro_sync" \
   -DSQLITE_THREADSAFE=2 -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE \
   -DSQLITE_USE_ALLOCA -DSQLITE_DQS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1 \
-  -Iruntime -Ibuild -I"$SQLITE" bench/micro_sync.c -lm
+  -Iruntime -Ibuild -Ibuild/assets -I"$SQLITE" bench/micro_sync.c -lm
 sqlite3 "$TMP/m.db" <gen/schema.sql
 bin/mina-admin seed --events "$EVENTS" --regions "$REGIONS" --seed 1 | sqlite3 -bail "$TMP/m.db"
 echo "events $EVENTS, regions $REGIONS, commit $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"

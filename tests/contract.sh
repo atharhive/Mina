@@ -69,7 +69,7 @@ req GET /v1/health
 if [ "$STATUS" = 200 ] && [[ "$BODY" =~ ^\{\"status\":\"ok\",\"db\":\"ok\",\"uptime_s\":[0-9]+\}$ ]]; then ok "GET /v1/health -> 200 $BODY"; else bad "GET /v1/health" "got $STATUS $BODY"; fi
 [ "$CTYPE" = application/json ] && ok "content type" || bad "content type" "got '$CTYPE'"
 req GET '/v1/health?probe=1';  [ "$STATUS" = 200 ] && ok "query string is ignored" || bad "query string" "got $STATUS"
-req GET /;                     expect "GET /" 404 '{"error":"not found"}'
+req GET /nothing;              expect "GET /nothing" 404 '{"error":"not found"}'
 req GET /v1;                   expect "GET /v1" 404 '{"error":"not found"}'
 req GET /v1/healthz;           expect "GET /v1/healthz" 404 '{"error":"not found"}'
 req GET /v1/health/x;          expect "GET /v1/health/x" 404 '{"error":"not found"}'
