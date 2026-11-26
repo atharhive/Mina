@@ -16,3 +16,7 @@ needs = ["appTemplate"]
 [[lean_exe]]
 name = "derive"
 root = "Main"
+
+[[lean_exe]]
+name = "oracle"
+root = "OracleMain"

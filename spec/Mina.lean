@@ -5,6 +5,7 @@ import Mina.Plan
 import Mina.Sync
 import Mina.Transition
 import Mina.Verified
+import Mina.Oracle
 import Mina.Schema
 import Mina.Query
 import Mina.Codegen.Domain
