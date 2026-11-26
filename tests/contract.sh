@@ -63,6 +63,13 @@ for args in "--sub 1 --role king" "--sub 0 --role citizen" "--role citizen" "--s
 done
 if env -u MINA_SECRET "$ADMIN" token --sub 1 --role citizen >/dev/null 2>&1; then bad "mina-admin without MINA_SECRET"; else ok "mina-admin requires MINA_SECRET"; fi
 if MINA_DB="$TMP/mina.db" MINA_SECRET=short MINA_PORT=$((PORT+1)) timeout 3 "$SERVER" >/dev/null 2>&1; [ $? = 1 ]; then ok "server rejects a secret under 32 bytes"; else bad "short secret accepted"; fi
+sqlite3 "$TMP/sync.db" <"$ROOT/gen/schema.sql"
+for mode in normal:NORMAL full:FULL; do
+  log="$(MINA_DB="$TMP/sync.db" MINA_SECRET="$SECRET" MINA_PORT=$((PORT+3)) MINA_SYNC="${mode%:*}" timeout 1 "$SERVER" 2>&1)"
+  grep -q "durability: synchronous=${mode#*:}" <<<"$log" && ok "MINA_SYNC=${mode%:*}" || bad "MINA_SYNC=${mode%:*}" "$log"
+  sleep 0.5
+done
+MINA_DB="$TMP/sync.db" MINA_SECRET="$SECRET" MINA_PORT=$((PORT+3)) MINA_SYNC=off timeout 3 "$SERVER" >/dev/null 2>&1; [ $? = 1 ] && ok "rejects MINA_SYNC=off" || bad "MINA_SYNC=off accepted"
 
 echo "-- health and routing"
 req GET /v1/health

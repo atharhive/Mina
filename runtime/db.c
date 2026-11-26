@@ -99,10 +99,14 @@ static void ckpt_start(const char *path) {
   pthread_detach(t);
 }
 
+/* NORMAL: a commit survives a process crash; the log is synced only at checkpoints. FULL: the
+ * log is synced at every commit, so it also survives power loss, at one sync per batch. */
+static const char *db_sync = "NORMAL";
+
 static void db_open(const char *path) {
   if (sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, 0) != SQLITE_OK) db_die("open");
   db_exec("PRAGMA journal_mode = WAL");
-  db_exec("PRAGMA synchronous = NORMAL");
+  db_exec(!strcmp(db_sync, "FULL") ? "PRAGMA synchronous = FULL" : "PRAGMA synchronous = NORMAL");
   db_exec("PRAGMA temp_store = MEMORY");
   db_exec("PRAGMA cache_size = -4096");   /* reads come from the mmap; the cache holds pages being written */
   db_exec("PRAGMA mmap_size = 1073741824");

@@ -4,7 +4,8 @@
  * Environment: MINA_DB (database file, required), MINA_SECRET (token key, required, >= 32 bytes),
  * MINA_HOST (127.0.0.1), MINA_PORT (8080), MINA_IDLE_S (120: seconds a connection may go
  * without completing a request or receiving an answer), MINA_FORCE_SQL (set: answer reads with
- * the reference SQL instead of the native plans). */
+ * the reference SQL instead of the native plans), MINA_SYNC (normal, or full: sync the log at
+ * every commit, so that an acknowledged write also survives power loss). */
 #define _GNU_SOURCE
 #include "sqlite3.c"
 
@@ -39,6 +40,12 @@ int main(void) {
     if (!*idle || *end || v < 1 || v > 86400) { fprintf(stderr, "MINA_IDLE_S must be 1 .. 86400\n"); return 1; }
     idle_limit_s = (u32)v;
   }
+  const char *sync = getenv("MINA_SYNC");
+  if (sync) {
+    if (!strcmp(sync, "full")) db_sync = "FULL";
+    else if (strcmp(sync, "normal")) { fprintf(stderr, "MINA_SYNC must be normal or full\n"); return 1; }
+  }
+  fprintf(stderr, "durability: synchronous=%s\n", db_sync);
   signal(SIGPIPE, SIG_IGN);
   hmac_init((const u8 *)secret, strlen(secret));
   db_open(path);
