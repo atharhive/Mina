@@ -101,7 +101,17 @@ checkpoints itself only if the log passes 65,536 frames (256 MB at 4 KB pages).
 A write is answered only after its batch has committed. With `synchronous=NORMAL` a committed
 write survives a process crash (tested, `tests/crash.mjs`) but may be lost on power failure.
 `MINA_SYNC=full` syncs at every commit instead (traced in `tests/durability.sh`, measured in
-BASELINE.md); real power loss has not been tested with either.
+BASELINE.md).
+
+`tests/powerloss.mjs` cuts the power of a virtual machine whose disk has a volatile cache. In
+`full` mode no acknowledged event was lost; in `normal` mode recently acknowledged events were,
+and the database stayed consistent either way. A disk that ignores flushes loses data and
+corrupts the database in both. Real hardware has not been tested.
+
+**Open defect in `normal` mode.** After a power cut, new events take the sequence numbers of the
+lost ones. A client that had read that far never receives the new ones, and the senders of the
+lost ones do not send them again, because nothing starts a new database generation (a restore
+does, below). `MINA_SYNC=full` avoids it.
 
 ## Backup and restore
 
@@ -141,6 +151,7 @@ and the role codes from `domain.h`.
 
 | Limitation | Effect | Planned |
 |---|---|---|
+| A power cut in `normal` durability reuses sequence numbers | Lost reports are not resent, and other clients skip the events that take their numbers | F: open, see above |
 | Lost eventfd wakeups on some kernels | Worked around with a 1 ms bounded idle wait; costs idle CPU (measured in BASELINE.md) | E: evaluate a single ring that blocks in `io_uring_enter` |
 | Ring memory counts against `RLIMIT_MEMLOCK` | With the 8 MB default, an immediate restart can fail with `io_uring_setup: Cannot allocate memory` | B/F: raise the limit in the service unit; retry on start |
 | No TLS | Tokens and reports cross the network in the clear unless a proxy terminates TLS; without HTTPS, browsers away from `localhost` also refuse the service worker, so the app does not work offline | F |

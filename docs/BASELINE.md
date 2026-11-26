@@ -373,3 +373,26 @@ binary was built before two later input-validation fixes in query parsing and ba
 | End of Milestone A | 1,000 | 0.72 / 1.55 | 0 | 6.5 % | 65 us | 79 MB |
 | End of Milestone B | 1,000 | 0.73 / 1.57 | 0 | 6.6 % | 66 us | 79 MB |
 
+## Power cuts
+
+`node tests/powerloss.mjs 30`, 2026-11-27, server at `4c499c7` in a KVM virtual machine (2
+processors, 512 MB, the laptop's kernel). The disk is the test program: writes stay in a
+volatile cache until a flush, which takes up to 8 ms; a cut drops the cache or, every other
+time, keeps a random half of its 512-byte sectors. Eight clients report without pause and each
+boot is cut within about 3 s. Three seeds of 30 cuts per setting.
+
+| | `full` | `normal` |
+|---|---|---|
+| Cuts | 90 | 90 |
+| Events acknowledged | 42,900 | 74,669 |
+| Unflushed disk writes at the cuts | 87 to 127 per seed | 2 to 6 per seed (what is lost had not left the guest's memory) |
+| Acknowledged events lost | **0** | **14,954** |
+| Sequence numbers of lost events given to other events | 0 | 3,090 |
+| Database damaged, or server not starting | never | never |
+
+The share lost in `normal` mode reflects boots of a few seconds under constant writing; it is not
+an estimate for real use. Control: with a disk that ignores flushes, `full` mode fails within a
+few cuts (acknowledged events gone, database malformed, server unable to start).
+
+This simulates a disk's cache, not real hardware: no real power supply, drive or firmware.
+

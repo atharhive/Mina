@@ -13,5 +13,6 @@ is done.
 | Testing on real phones and slow mobile networks | no test devices on a trusted connection | HTTPS (above) and a phone |
 | Geographic basemap in the responder view | map tiles must come from somewhere, and a public tile service would break offline use and the same-origin content policy | a choice of tile data to host with the server (for example a regional extract), with its licence and size |
 | Coverage-guided fuzzing of the parsers | clang with libFuzzer is not installed on the development machine | installing it, which needs the machine owner's password (for example `sudo apt install clang`) |
+| Power cuts on real hardware | no machine and drive that may be cut; `tests/powerloss.mjs` simulates the drive's cache only | a test machine whose power can be switched off |
 | Translations | no target languages chosen, and no one to check the wording of emergency messages | the languages, and a speaker of each |
 | Review by someone other than the author, including security | all code and tests so far come from one author | a human reviewer, or an externally run review |

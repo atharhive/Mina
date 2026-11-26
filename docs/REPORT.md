@@ -27,7 +27,7 @@ services**.
 | Direct B-tree execution | yes | synchronisation; other reads and all writes use SQL |
 | Query acceleration | 2 to 5 times | 1.6 to 1.8 on full pages, 4.1 on small answers, 47 to 83 on empty ones, measured inside the process; no established difference in whole-server CPU |
 | Duplicate stored events | none | none in any test |
-| Lost acknowledged events | none under process crashes | none in forced-crash tests; power loss not tested; see restore below |
+| Lost acknowledged events | none | none under forced crashes, or under simulated power cuts with `MINA_SYNC=full`; **the default setting loses recent ones in a power cut**; see restore below |
 | Citizen JavaScript | under 100 KB compressed | 104 KB gzip (90 KB brotli): over |
 | Offline reporting | yes | yes, on `localhost` or HTTPS |
 | Lighthouse performance | 95+ | 100 for all three applications: first screen, simulated mobile, same machine |
@@ -75,6 +75,11 @@ were rerun and passed.
 
 Planted bugs, in copies of the code, were detected by the native-against-SQL test, the oracle,
 the crash test and both parser fuzz cases tried.
+
+Added on 2026-11-27, server at `4c499c7`: simulated power cuts (`tests/powerloss.mjs`, details in
+[BASELINE.md](BASELINE.md)). With `MINA_SYNC=full`, 90 cuts and 42,900 acknowledged events, none
+lost. With the default `normal`, 90 cuts, 14,954 of 74,669 lost. The database stayed intact in
+both. A disk that ignores flushes makes the test fail, as it should.
 
 ## What Lean establishes
 
@@ -138,7 +143,7 @@ about 27 s.
 | No token revocation | a leaked token works until it expires or the key is replaced |
 | The new-session limit is server-wide; the citizen limit is per identity | one abuser can block new citizens, or rotate identities |
 | Citizens may report in any area | false reports are not confined |
-| Default durability is `normal` | recently acknowledged writes can be lost in a power cut |
+| Default durability is `normal` (open defect) | in a power cut recently acknowledged reports are lost and not sent again, and their numbers are reused, so other clients skip new events; `MINA_SYNC=full` avoids it |
 | Restoring a backup | only devices that return resend; responder actions on lost incidents are refused |
 | Parsers fuzzed by random mutation only | defects on rare paths may remain |
 | One server, one writer | no redundancy |
@@ -151,7 +156,7 @@ about 27 s.
 | 300,000+ users; two-machine and 30-minute runs; kernel profiling | blocked, [PENDING.md](PENDING.md) |
 | AWS deployment, off-machine backups, monitoring, access policy | not started |
 | HTTPS ("secure" benchmark category), real phones | blocked |
-| Power-loss testing | not started |
+| Power cuts on real hardware | simulated in a virtual machine only |
 | Reserved capacity for emergency writes (`reserve_safe`) and congestion control | not built or proved |
 | Native plans for incident reads and duplicate lookup | not built; no measured need yet |
 | Map background, translations | blocked on choices |

@@ -41,6 +41,7 @@ tests/assets.sh         # serving a web application from memory
 node tests/crash.mjs    # kill the server under load, check nothing acknowledged is lost
 tests/backup.sh         # back up while writing, restore safely
 tests/durability.sh     # what MINA_SYNC syncs (needs strace)
+node tests/powerloss.mjs   # cut the power of a virtual machine under load (see its head)
 tests/fuzz.sh 60        # fuzz the parsers under sanitizers
 node tests/netfuzz.mjs  # fuzz the transport (after ./build.sh sanitize)
 bench/micro.sh          # their cost, in process
@@ -71,7 +72,7 @@ bin/mina-admin token --sub 1 --role responder --regions 1,2          # responder
 | `MINA_PORT` | `8080` | |
 | `MINA_IDLE_S` | `120` | seconds a connection may go without a request or progress |
 | `MINA_FORCE_SQL` | unset | answer reads with the reference SQL instead of the native plans |
-| `MINA_SYNC` | `normal` | `full` syncs at every commit, so acknowledged writes survive power loss, at some 6 ms of latency here |
+| `MINA_SYNC` | `normal` | `full` syncs at every commit, so acknowledged writes survive power loss, at some 6 ms of latency here. With `normal` a power cut loses recent ones, and clients can then miss new events: use `full` where power may fail |
 
 After changing `spec/`, regenerate the checked-in copies with
 `(cd spec && lake exe derive ../gen)`.
