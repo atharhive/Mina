@@ -124,6 +124,42 @@ Reading these numbers:
 - How much this saves per request on the server is unknown until MINA's own routes are load
   tested, and depends on how often clients are already up to date.
 
+## MINA workload under load
+
+`bench/mina.sh <users> <ramp> <hold> <rampdown> [native|sql]`: the request mix documented in
+`bench/workload_mina.h` (about 0.1 request/s per user; 92 % of citizen requests are syncs, 5 %
+submissions), 64 regions, 200,000 seeded events, one keep-alive connection per user. Server
+alone on CPU 0 in a 2 GB cgroup, generator on CPUs 2 to 11, loopback, database on ext4, one run
+each. Tokens are signed by the generator; session creation is not part of the load.
+
+| Users | Build, reads | Hold | Requests/s, achieved of offered | p50 / p99 ms | Errors | CPU | CPU per request | Memory peak (kernel) |
+|---:|---|---:|---:|---|---:|---:|---:|---|
+| 10,000 | `c75adc8`, native | 90 s | 1,000 of 1,000 | 0.86 / 13.70 | 0 | 26.4 % | 264 us | 89 MB (56) |
+| 50,000 | `c75adc8`, native | 120 s | 4,998 of 4,997 | 3.81 / 42.50 | 0 | 65.0 % | 130 us | 249 MB (207) |
+| 50,000 | `c75adc8`, SQL | 120 s | 4,998 of 4,998 | 3.71 / 26.11 | 0 | 64.8 % | 130 us | 248 MB (206) |
+| 100,000 | `c75adc8`, native | 300 s | **7,253 of 10,000** | 3,604 / 6,095 | 0 | 99.9 % | 138 us | 597 MB (395) |
+| 100,000 | `c75adc8`, SQL | 300 s | **7,201 of 10,000** | 3,703 / 6,160 | 0 | 99.9 % | 139 us | 595 MB (395) |
+| 10,000 | `5b30529`, native | 90 s | 1,000 of 1,000 | 0.73 / 1.74 | 0 | 6.6 % | 66 us | 89 MB (56) |
+| 50,000 | `5b30529`, native | 120 s | 5,000 of 5,000 | 0.71 / 1.63 | 0 | 19.5 % | 39 us | 246 MB (206) |
+| 100,000 | `5b30529`, native | 300 s | 10,007 of 10,007 | 0.75 / 1.60 | 0 | 28.4 % | 28 us | 446 MB (395) |
+| 100,000 | `5b30529`, SQL | 300 s | 10,007 of 10,007 | 0.78 / 1.50 | 0 | 31.7 % | 32 us | 446 MB (395) |
+
+Every connection stayed open through every hold and every answer was the expected one. At
+100,000 users about 71 % of syncs returned events (events: 200,000 at the start, about 307,000
+at the end).
+
+Reading these numbers:
+
+- The step from `c75adc8` to `5b30529` is one fix, see
+  [OPTIMIZATION_LOG.md](OPTIMIZATION_LOG.md).
+- Native sync plans save about 10 % of server CPU per request in this mix at 100,000 users (one
+  run each). Most server time is in the kernel (about two thirds).
+- Loopback charges part of the receive path to the generator, this core is faster than a small
+  cloud vCPU, and an idle server process left running on this machine used about 2 % of the
+  sibling hardware thread during all of these runs.
+- Straight-line extrapolation to 300,000 users gives about 85 % of this core and 1.3 GB. That is
+  arithmetic, not a measurement, and leaves little margin.
+
 ## Not measured
 
 - Any step above 100,000 users, a five-minute confirmation hold, or a two-machine run.
