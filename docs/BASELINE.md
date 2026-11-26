@@ -178,6 +178,11 @@ As served by the server (brotli): JavaScript 90,032 bytes, stylesheet 2,348 byte
 1.87 MB. With the web build, `tests/contract.sh` passes 155 of 155, `tests/assets.sh` 40 of 40
 on release and sanitizer builds, and the browser test passes against the server alone.
 
+With the responder dashboard added: its JavaScript is 104.9 KB gzip (90,974 bytes brotli), the
+citizen app's 104.2 KB gzip (90,530 bytes brotli), and the server binary is 2.42 MB.
+`tests/assets.sh` passes 45 of 45 on both builds, the shared library's tests 27 of 27, and both
+applications' browser tests pass.
+
 Decision (2026-11-26): React is kept, 5 KB over the budget. The difference costs a first visit
 only, since the service worker then holds the application; at 50 kbit/s, 61 KB is about 10 s.
 Revisit if the bundle grows.

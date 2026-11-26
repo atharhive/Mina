@@ -10,8 +10,8 @@ B-tree plans that are proved in Lean to equal the reference SQL, with differenti
 C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one development machine
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
-TLS exists yet. The server serves the citizen web app itself; its offline features need HTTPS
-anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
+TLS exists yet. The server serves the citizen app (`/`) and the responder dashboard (`/command/`) itself;
+offline features need HTTPS anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
 [docs/PENDING.md](docs/PENDING.md).
 
 MINA is not a replacement for official emergency services.
@@ -110,13 +110,16 @@ Needs Node 22 and pnpm; the end-to-end test also needs Google Chrome.
 
 ```bash
 cd frontend && pnpm install
-pnpm test                      # outbox and sync, including a run against the built server
+pnpm test                      # outbox, sync and incident list, including a run against the server
 pnpm --dir citizen dev         # development server; proxies /v1 to 127.0.0.1:8080
-cd .. && ./build.sh web        # compile the app into bin/mina-server
+cd .. && ./build.sh web        # compile both apps into bin/mina-server
 cd frontend && pnpm --dir citizen e2e    # report offline, reconnect, delivered, resolved
+pnpm --dir command e2e                   # sign in, work through incidents, publish an alert
 ```
 
-With the `web` build, open `http://127.0.0.1:8080`. Browsers allow service workers and location
+With the `web` build, open `http://127.0.0.1:8080` to report, and
+`http://127.0.0.1:8080/command/` to respond; the dashboard asks for a token from
+`bin/mina-admin token --sub 1 --role responder --regions 1`. Browsers allow service workers and location
 only on `localhost` or over HTTPS, so on a phone the app needs a TLS proxy in front of the server.
 
 ## Layout
@@ -128,7 +131,7 @@ runtime/   application-independent C: transport, HTTP, JSON, tokens, buffers, SQ
 tools/     mina-admin: offline tokens and synthetic data
 tests/     unit, contract and seed tests, a kernel probe
 bench/     load generator and single-machine benchmark runner
-frontend/  shared sync engine and the citizen web app
+frontend/  shared sync engine, the citizen app and the responder dashboard
 docs/      architecture, proofs, guide to reusing the Lean pipeline, plan, measurements
 ```
 

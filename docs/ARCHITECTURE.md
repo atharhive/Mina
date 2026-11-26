@@ -46,12 +46,22 @@ Synchronisation reads come from native B-tree plans, everything else from SQL. W
 
 ## Web application
 
-`./build.sh web` builds the citizen app and `tools/embed-assets.mjs` writes each file as complete
-responses: brotli, gzip (each only if smaller), plain, and "304 Not Modified". `runtime/assets.c`
+`./build.sh web` builds the citizen app (served at `/`) and the responder dashboard (served at
+`/command/`); `tools/embed-assets.mjs` writes each file as complete responses: brotli, gzip (each only if smaller), plain, and "304 Not Modified". `runtime/assets.c`
 sends them from read-only memory, without copies or file access, for a `GET` that matches no API
-route. Paths match exactly. Files under `assets/` carry a hash in their name and are cached for
+route. A path ending in `/` means that directory's `index.html`; otherwise paths match exactly. Files under `assets/` carry a hash in their name and are cached for
 good; the others are revalidated by entity tag. Responses set a same-origin content security
 policy. A plain `./build.sh` embeds nothing.
+
+Both apps share one client library (`frontend/shared`): the protocol generated from the
+specification, an outbox in IndexedDB, cursor synchronisation, and for responders the incident
+list built from the event stream and the permitted transitions.
+
+| | Citizen | Command |
+|---|---|---|
+| Identity | a session the server issues when first needed | a token from `mina-admin`; signing out erases the device's data |
+| Offline | opens and records reports without a network (service worker) | keeps working while the page is open; actions wait. No service worker yet, so it cannot be reopened offline |
+| Long lists | 50 reports, 20 alerts | rows off screen are not laid out (`content-visibility`) |
 
 ## Bounds
 
