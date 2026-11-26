@@ -11,7 +11,8 @@ C against that SQL ([what is and is not proved](docs/PROOFS.md)). On one develop
 over loopback, 100,000 virtual users were served on 28 % of one CPU
 ([measurements and their limits](docs/BASELINE.md)); nothing larger has been run. No frontend or
 TLS exists yet. The server serves the citizen web app itself; its offline features need HTTPS
-anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+anywhere but on `localhost`. See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md); blocked work is listed in
+[docs/PENDING.md](docs/PENDING.md).
 
 MINA is not a replacement for official emergency services.
 
