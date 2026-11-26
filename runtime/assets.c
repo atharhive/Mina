@@ -38,7 +38,13 @@ static int accepts(const u8 *p, u32 n, const char *name) {
 static obuf *asset_serve(const req_t *rq) {
   const u8 *path = rq->path;
   u32 n = rq->path_len;
-  if (n == 1 && path[0] == '/') { path = (const u8 *)"/index.html"; n = 11; }
+  u8 index[256];                             /* "<directory>/" means its index.html */
+  if (n && path[n - 1] == '/' && n + 10 <= sizeof index) {
+    memcpy(index, path, n);
+    memcpy(index + n, "index.html", 10);
+    path = index;
+    n += 10;
+  }
   for (int i = 0; i < ASSET_COUNT; i++) {
     const asset *a = &ASSETS[i];
     if (a->path_len != n || memcmp(a->path, path, n)) continue;

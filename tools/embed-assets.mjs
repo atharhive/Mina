@@ -32,7 +32,7 @@ files.forEach((file, i) => {
   const body = readFileSync(join(root, file));
   const type = TYPES[extname(file)] ?? "application/octet-stream";
   // the build puts a content hash into the names under assets/
-  const cache = file.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+  const cache = /(^|\/)assets\//.test(file) ? "public, max-age=31536000, immutable" : "no-cache";
   const etag = `W/"${createHash("sha256").update(body).digest("hex").slice(0, 16)}"`;
   const common = `ETag: ${etag}\r\nCache-Control: ${cache}\r\nVary: Accept-Encoding\r\n`;
   const response = (encoding, data) => Buffer.concat([Buffer.from(

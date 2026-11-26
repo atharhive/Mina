@@ -16,6 +16,7 @@ head -c 200000 /dev/urandom | base64 >"$web/assets/app-Ab3dEf12.js"      # large
 printf 'x' >"$web/assets/tiny-0000.css"                                  # would grow if compressed
 echo '// worker' >"$web/sw.js"
 printf '{"name":"f"}' >"$web/manifest.webmanifest"
+mkdir -p "$web/command/assets"; echo '<title>second app</title>' >"$web/command/index.html"; echo '1' >"$web/command/assets/c-1111.js"
 MINA_WEB="$web" MINA_SUFFIX=-test "$ROOT/build.sh" ${MINA_BUILD:-} >"$TMP/build.log" 2>&1 || { echo "build failed:"; tail -20 "$TMP/build.log"; exit 1; }
 
 sqlite3 "$TMP/m.db" <"$ROOT/gen/schema.sql"
@@ -56,7 +57,10 @@ get /manifest.webmanifest; is "manifest type" "$(header content-type)" "applicat
 get /sw.js; is "service worker is revalidated" "$(header cache-control)" "no-cache"
 get '/sw.js?v=2'; is "query string is ignored" "$STATUS" 200
 
-for p in /missing /assets /assets/ /assets/../index.html /../etc/passwd /%2e%2e/etc/passwd //index.html /index.html/ /INDEX.HTML; do
+get /command/; cmp -s "$TMP/body" "$web/command/index.html" && ok "a second application under its own path" || bad "GET /command/" "$STATUS"
+get /command/assets/c-1111.js; is "its hashed files are cached for good" "$(header cache-control)" "public, max-age=31536000, immutable"
+get /command/index.html; is "its page by name" "$STATUS" 200
+for p in /command /command// /missing /assets /assets/ /assets/../index.html /../etc/passwd /%2e%2e/etc/passwd //index.html /index.html/ /INDEX.HTML; do
   get "$p"; is "no file at $p" "$STATUS" 404
 done
 get / -X POST; is "POST / is not found" "$STATUS" 404

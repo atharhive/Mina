@@ -6,7 +6,7 @@
 #      and the generated code.
 #
 #   ./build.sh            optimised binaries (no web application: GET / answers 404)
-#   ./build.sh web        the same, with the citizen web application compiled into the server
+#   ./build.sh web        the same, with the web applications compiled into the server
 #                         (needs node and pnpm). MINA_WEB=<dir> embeds another directory.
 #   ./build.sh sanitize   bin/mina-server-san and bin/mina-admin-san, with ASan and UBSan
 #
@@ -38,9 +38,12 @@ done
 WEB=
 case "${1:-}" in
   "")       SUF=;     OPT=(-O2 -march=native -fno-plt) ;;
-  web)      SUF=;     OPT=(-O2 -march=native -fno-plt); WEB=frontend/citizen/dist
-            echo "== web: build the citizen application"
-            (cd frontend && pnpm install --frozen-lockfile --silent && pnpm --silent --dir citizen build >/dev/null) ;;
+  web)      SUF=;     OPT=(-O2 -march=native -fno-plt); WEB=build/web
+            echo "== web: build the citizen (/) and responder (/command/) applications"
+            (cd frontend && pnpm install --frozen-lockfile --silent \
+              && pnpm --silent --dir citizen build >/dev/null && pnpm --silent --dir command build >/dev/null)
+            rm -rf build/web && mkdir -p build/web
+            cp -r frontend/citizen/dist/. build/web/ && cp -r frontend/command/dist build/web/command ;;
   sanitize) SUF=-san; OPT=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all) ;;
   *) echo "usage: ./build.sh [web|sanitize]" >&2; exit 2 ;;
 esac
