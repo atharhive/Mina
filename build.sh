@@ -39,11 +39,13 @@ WEB=
 case "${1:-}" in
   "")       SUF=;     OPT=(-O2 -march=native -fno-plt) ;;
   web)      SUF=;     OPT=(-O2 -march=native -fno-plt); WEB=build/web
-            echo "== web: build the citizen (/) and responder (/command/) applications"
+            echo "== web: build the citizen (/), responder (/command/) and observatory (/observatory/) applications"
             (cd frontend && pnpm install --frozen-lockfile --silent \
-              && pnpm --silent --dir citizen build >/dev/null && pnpm --silent --dir command build >/dev/null)
+              && pnpm --silent --dir citizen build >/dev/null && pnpm --silent --dir command build >/dev/null \
+              && pnpm --silent --dir observatory build >/dev/null)
             rm -rf build/web && mkdir -p build/web
-            cp -r frontend/citizen/dist/. build/web/ && cp -r frontend/command/dist build/web/command ;;
+            cp -r frontend/citizen/dist/. build/web/ && cp -r frontend/command/dist build/web/command
+            cp -r frontend/observatory/dist build/web/observatory ;;
   sanitize) SUF=-san; OPT=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all) ;;
   *) echo "usage: ./build.sh [web|sanitize]" >&2; exit 2 ;;
 esac

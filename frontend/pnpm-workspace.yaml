@@ -2,6 +2,7 @@ packages:
   - shared
   - citizen
   - command
+  - observatory
 # only releases that have been public for two weeks (a guard against freshly compromised ones)
 minimumReleaseAge: 20160
 savePrefix: ""
