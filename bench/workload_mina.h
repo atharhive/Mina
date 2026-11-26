@@ -11,7 +11,9 @@
  *   (*) a sync instead, when there is nothing to act on yet
  *
  * Responders learn of incidents from their own sync answers. Argument:
- * "<token key>:<newest seq at start>:<regions>"; users start with their cursor there. Session
+ * "<token key>:<start cursor>:<regions>[:<retry %>:<emergency %>]". Users start with their
+ * cursor there: the newest event for a normal run, an older one for devices that reconnect with a
+ * backlog. The two percentages replace the citizen's 2 % of retries and 1 % of reports. Session
  * creation is not part of the workload: tokens are signed by the generator.
  *
  * Build: cc ... -Ibench -Iruntime -Igen -DWORKLOAD='"workload_mina.h"' bench/loadgen.c bench/sign.c */
@@ -32,18 +34,20 @@ typedef struct {
 #define WL_HAS_REPORT
 
 enum { X_SYNC, X_INCIDENT, X_STORED, X_REPORT, X_DUPLICATE, X_ACTION };
-enum { C_EMPTY, C_PAGES, C_EVENTS, C_INCIDENT, C_REPORT, C_SAFETY, C_ALERT, C_DUPLICATE, C_ACTION, C_CONFLICT, C_UNEXPECTED, NCOUNT };
+enum { C_EMPTY, C_PAGES, C_EVENTS, C_INCIDENT, C_REPORT, C_SAFETY, C_ALERT, C_DUPLICATE, C_ACTION, C_CONFLICT, C_STORED, C_UNEXPECTED, NCOUNT };
 static const char *wl_names[NCOUNT] = {"sync_empty", "sync_pages", "events_received", "incident_reads", "emergencies", "safety",
-                                       "alerts", "duplicate_retries", "incident_updates", "update_conflicts", "unexpected"};
+                                       "alerts", "duplicate_retries", "incident_updates", "update_conflicts", "new_events_acknowledged", "unexpected"};
 static unsigned long long wl_count[NCOUNT], wl_nonce;
 static long long wl_users, wl_head;
 static int wl_regions;
+static int wl_retry = 2, wl_report_share = 1;    /* percent of a citizen's requests */
 #define COUNT(c, n) __atomic_add_fetch(&wl_count[c], (n), __ATOMIC_RELAXED)
 
 static void wl_init(const char *arg) {
   static char key[128];
-  if (!arg || sscanf(arg, "%127[^:]:%lld:%d", key, &wl_head, &wl_regions) != 3 || wl_regions < 1) {
-    fprintf(stderr, "workload_mina needs \"<token key>:<head>:<regions>\"\n");
+  int got = arg ? sscanf(arg, "%127[^:]:%lld:%d:%d:%d", key, &wl_head, &wl_regions, &wl_retry, &wl_report_share) : 0;
+  if ((got != 3 && got != 5) || wl_regions < 1 || wl_retry < 0 || wl_report_share < 0 || wl_retry + wl_report_share > 95) {
+    fprintf(stderr, "workload_mina needs \"<token key>:<cursor>:<regions>[:<retry %%>:<emergency %%>]\"\n");
     exit(2);
   }
   sign_key(key);
@@ -99,19 +103,21 @@ static int wl_request(wl_user *u, u32 *rng, char *buf, int cap) {
     }
     return wl_get(u, buf, cap, 0);
   }
-  if (dice >= 98 && u->last[0]) { u->expect = X_DUPLICATE; COUNT(C_DUPLICATE, 1); return wl_post(u, buf, cap); }
-  if (dice == 97) {
+  /* from the top of the dice: retries, emergencies, 2 % safety, 3 % own incident, else sync */
+  u32 retries = 100 - (u32)wl_retry, reports = retries - (u32)wl_report_share;
+  if (dice >= retries && u->last[0]) { u->expect = X_DUPLICATE; COUNT(C_DUPLICATE, 1); return wl_post(u, buf, cap); }
+  if (dice >= reports && dice < retries) {
     snprintf(f, sizeof f, "\"kind\":1,\"region\":%d,\"category\":%u,\"body\":\"synthetic: two people on the roof\",\"lat\":2812345,\"lon\":7712345",
              u->region, rnd(rng) % 5 + 1);
     COUNT(C_REPORT, 1);
     return wl_submit(u, buf, cap, X_REPORT, f);
   }
-  if (dice >= 95 && dice < 97) {
+  if (dice >= reports - 2 && dice < reports) {
     snprintf(f, sizeof f, "\"kind\":5,\"region\":%d,\"status\":%u", u->region, rnd(rng) % 2 + 1);
     COUNT(C_SAFETY, 1);
     return wl_submit(u, buf, cap, X_STORED, f);
   }
-  if (dice >= 92 && dice < 95 && u->mine) return wl_get(u, buf, cap, 1);
+  if (dice >= reports - 5 && dice < reports - 2 && u->mine) return wl_get(u, buf, cap, 1);
   return wl_get(u, buf, cap, 0);
 }
 
@@ -153,15 +159,15 @@ static double wl_response(wl_user *u, u32 *rng, int status, const char *body, u3
     break;
   }
   case X_INCIDENT: *ok = status == 200; COUNT(C_INCIDENT, 1); break;
-  case X_STORED: *ok = status == 201; break;
+  case X_STORED: *ok = status == 201; if (*ok) COUNT(C_STORED, 1); break;
   case X_REPORT: {
     const char *in = strstr(body, "\"incident\":");
-    if (status == 201 && in) { u->mine = strtoll(in + 11, 0, 10); *ok = 1; }
+    if (status == 201 && in) { u->mine = strtoll(in + 11, 0, 10); *ok = 1; COUNT(C_STORED, 1); }
     break;
   }
   case X_DUPLICATE: *ok = status == 200 && strstr(body, "\"duplicate\":true"); break;
   case X_ACTION:
-    if (status == 201) { COUNT(C_ACTION, 1); if (++u->stage == 3) u->target = 0; *ok = 1; }
+    if (status == 201) { COUNT(C_STORED, 1); COUNT(C_ACTION, 1); if (++u->stage == 3) u->target = 0; *ok = 1; }
     else if (status == 409) { COUNT(C_CONFLICT, 1); u->target = 0; *ok = 1; }   /* another responder moved it */
     break;
   }

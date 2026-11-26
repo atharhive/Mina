@@ -5,13 +5,16 @@
 #
 # The server runs as in bench/run.sh: alone on one CPU inside a 2 GB memory cgroup, over
 # loopback. Env: EVENTS (200000) and REGIONS (64) for the seed, RESULTS (results/mina-load,
-# on a real disk: the database is written there). Prints one JSON line and appends it to
-# $RESULTS/steps.jsonl. Needs ./build.sh to have run.
+# on a real disk: the database is written there). Crisis profiles: RETRY_PCT (2) and REPORT_PCT
+# (1) of citizen requests, CURSOR_BACK (0) events each device is behind at the start. MINA_SYNC
+# is passed to the server. Prints one JSON line and appends it to $RESULTS/steps.jsonl. Needs
+# ./build.sh to have run.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ $# -ge 4 ] || { sed -n '2,9p' "$0"; exit 2; }
+[ $# -ge 4 ] || { sed -n '2,12p' "$0"; exit 2; }
 USERS=$1 RAMP=$2 HOLD=$3 DOWN=$4 MODE=${5:-native}
 EVENTS=${EVENTS:-200000} REGIONS=${REGIONS:-64} RESULTS=${RESULTS:-results/mina-load}
+RETRY_PCT=${RETRY_PCT:-2} REPORT_PCT=${REPORT_PCT:-1} CURSOR_BACK=${CURSOR_BACK:-0} SYNC=${MINA_SYNC:-normal}
 case $MODE in native) FORCE= ;; sql) FORCE=1 ;; *) echo "mode: native or sql" >&2; exit 2 ;; esac
 mkdir -p "$RESULTS"
 cc -O2 -pthread -Wno-unused-function -DWORKLOAD='"workload_mina.h"' -Ibench -Iruntime -Igen -o bin/loadgen-mina bench/loadgen.c bench/sign.c
@@ -21,14 +24,18 @@ sqlite3 "$DB" <gen/schema.sql
 bin/mina-admin seed --events "$EVENTS" --regions "$REGIONS" --seed 1 | sqlite3 -bail "$DB"
 sync
 SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-LOG="$RESULTS/server-$USERS-$MODE.log"
+LOG="$RESULTS/server-$USERS-$MODE.log"; : >"$LOG"
 line=$(MINA_DB="$DB" MINA_SECRET="$SECRET" MINA_PORT=3000 MINA_FORCE_SQL="$FORCE" SERVER_LOG="$LOG" \
-  WORKLOAD_ARG="$SECRET:$EVENTS:$REGIONS" bench/run.sh bin/loadgen-mina "$USERS" "$RAMP" "$HOLD" "$DOWN" -- bin/mina-server)
+  WORKLOAD_ARG="$SECRET:$((EVENTS - CURSOR_BACK)):$REGIONS:$RETRY_PCT:$REPORT_PCT" bench/run.sh bin/loadgen-mina "$USERS" "$RAMP" "$HOLD" "$DOWN" -- bin/mina-server)
 want="native read plans: $([ "$MODE" = native ] && echo on || echo off)"
 grep -q "$want" "$LOG" || { echo "server did not report '$want'" >&2; exit 1; }
+grep -qi "durability: synchronous=$SYNC" "$LOG" || { echo "server did not report durability $SYNC" >&2; exit 1; }
 if grep -qE 'native plan failed|another connection|batch rolled back|checkpointed in the request thread' "$LOG"; then
   echo "server log has warnings:" >&2; grep -m5 -E 'native|another|rolled|wal:' "$LOG" >&2
 fi
 events=$(sqlite3 "$DB" 'SELECT count(*) FROM events')
+integrity=$(sqlite3 "$DB" 'PRAGMA integrity_check')
 jq -c --arg mode "$MODE" --arg commit "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" --argjson ev "$EVENTS" --argjson end "$events" \
-  '. + {mode: $mode, commit: $commit, events_at_start: $ev, events_at_end: $end}' <<<"$line" | tee -a "$RESULTS/steps.jsonl"
+  --arg sync "$SYNC" --arg integrity "$integrity" --argjson retry "$RETRY_PCT" --argjson report "$REPORT_PCT" --argjson back "$CURSOR_BACK" \
+  '. + {mode: $mode, commit: $commit, events_at_start: $ev, events_at_end: $end, durability: $sync, integrity: $integrity,
+        profile: {retry_pct: $retry, report_pct: $report, cursor_back: $back}}' <<<"$line" | tee -a "$RESULTS/steps.jsonl"
