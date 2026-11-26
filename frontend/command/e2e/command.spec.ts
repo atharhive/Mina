@@ -29,7 +29,7 @@ test.beforeAll(async () => {
   server = spawn(join(root, "bin/mina-server"), { env: { MINA_DB: join(dir, "m.db"), MINA_SECRET: secret, MINA_PORT: "4318" }, stdio: "ignore" });
   await expect.poll(async () => fetch(`${base}/v1/health`).then((r) => r.ok, () => false)).toBe(true);
   expect((await fetch(`${base}/command/`)).status, "the server has no web application: run ./build.sh web").toBe(200);
-  await report({ kind: 1, region: 7, category: 4, body: "Out of food for two days" });
+  await report({ kind: 1, region: 7, category: 4, body: "Out of food for two days", lat: 2850000, lon: 7750000 });
   await report({ kind: 1, region: 7, category: 1, body: "Man collapsed near the pump house", lat: 2812300, lon: 7712300 });
   await report({ kind: 5, region: 7, status: 2, body: "Trapped on the roof" });
   await report({ kind: 1, region: 8, category: 2, body: "In another area" });
@@ -53,8 +53,13 @@ test("a responder handles incidents of their region", async ({ page, context }) 
   await expect(list.getByRole("listitem").nth(1)).toContainText("Food");
   await expect(page.getByRole("region", { name: "Safety reports" })).toContainText("Trapped on the roof");
 
-  await list.getByRole("button", { name: /Medical/ }).click();
+  const plot = page.getByRole("region", { name: "Incident positions" });
+  await expect(plot.getByRole("button", { name: /unanswered/ })).toHaveCount(2);   // the two with a location, far apart
+  await expect(plot).toContainText("no map background");
   const detail = page.getByRole("region", { name: "Incident detail" });
+  await plot.getByRole("button", { name: /Food, unanswered/ }).press("Enter");     // markers work from the keyboard
+  await expect(detail).toContainText("Out of food for two days");
+  await plot.getByRole("button", { name: /Medical, unanswered/ }).click();
   await expect(detail).toContainText("Man collapsed near the pump house");
   await expect(detail).toContainText("28.123, 77.123");
   await expect(detail.getByRole("button", { name: "Start work" })).toHaveCount(0);   // not permitted yet

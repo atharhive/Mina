@@ -1,5 +1,6 @@
 export * from "./api";
 export * from "./backoff";
+export * from "./cluster";
 export * from "./db";
 export * from "./identity";
 export * from "./incidents";

@@ -2,6 +2,7 @@ import { KIND, SAFETY, incidents, keepSynchronised, type Link, type Responder } 
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Alerts } from "./Alerts";
 import { Detail } from "./Detail";
+import { PositionPlot } from "./PositionPlot";
 import { useLive } from "./live";
 import { SignIn } from "./SignIn";
 import { connection, db, engine, signOut } from "./store";
@@ -104,6 +105,7 @@ function Dashboard({ responder, regions }: { responder: Responder; regions: numb
           </section>
         </div>
         <div className="space-y-6">
+          <PositionPlot incidents={list} selected={selected} onSelect={setSelected} />
           <section aria-label="Incident detail" className="border border-line bg-panel p-4">
             {incident ? <Detail incident={incident} outbox={outbox} regions={regions} /> : <p className="text-muted">Choose an incident from the list.</p>}
           </section>
