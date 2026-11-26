@@ -75,7 +75,9 @@ def sessionSeconds : Nat := 30 * 86400
 `GET /v1/sync?region=R&after=C&limit=N` answers with the events of a region after the client's
 cursor: `next` is the cursor to send next time, `more` says whether another page is ready, and
 `head` is the newest sequence number the server holds. A cursor beyond `head` means the server
-no longer has what the client has seen: it must resynchronise. -/
+no longer has what the client has seen: it must resynchronise. `generation` changes when the
+database is replaced by an older copy (`tools/restore.sh`): a client that sees it change reads
+again from the start and sends again what it had been told was stored. -/
 
 def syncDefaultLimit : Nat := 64
 def syncMaxLimit : Nat := 256
@@ -87,7 +89,8 @@ def eventShape : Shape := .arr [
   .nint "at" "has_at"]
 
 def syncShape : Shape := .obj [
-  ("head", .int "head"), ("events", .arr [.embed "events"]), ("next", .int "next"), ("more", .bool "more")]
+  ("head", .int "head"), ("generation", .int "generation"), ("events", .arr [.embed "events"]),
+  ("next", .int "next"), ("more", .bool "more")]
 
 /-! ## Incidents
 

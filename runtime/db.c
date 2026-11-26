@@ -47,6 +47,14 @@ static KeyInfo *db_keyinfo(int nkey, int nextra) {
   return k;
 }
 
+/* PRAGMA user_version: a number the database's owner may use. */
+static i64 db_user_version(void) {
+  sqlite3_stmt *s = db_prepare("PRAGMA user_version");
+  i64 v = sqlite3_step(s) == SQLITE_ROW ? sqlite3_column_int64(s, 0) : 0;
+  sqlite3_finalize(s);
+  return v;
+}
+
 /* ---- checkpoints ------------------------------------------------------------------------
  * WAL checkpoints copy committed pages into the database file and fsync it. Run inside the
  * event loop they stall every connection for as long as the disk takes, so they run on a

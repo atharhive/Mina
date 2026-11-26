@@ -37,6 +37,8 @@ consistent "$TMP/backup.db" backup
 saved="$(sql "$TMP/backup.db" 'SELECT max(seq) FROM events')"
 [ "$saved" -ge 300 ] && [ "$(sql "$TMP/backup.db" 'SELECT count(*) = max(seq) FROM events')" = 1 ] && ok "the backup is a complete prefix ($saved events)" || bad "backup prefix" "$saved"
 "$ROOT/tools/backup.sh" "$TMP/live.db" "$TMP/backup.db" >/dev/null 2>&1 && bad "backup overwrites an existing file" || ok "an existing file is not overwritten"
+generation() { curl -s -m 2 -H "Authorization: Bearer $ADM" "$BASE/v1/sync?region=1&limit=1" | jq .generation; }
+before="$(generation)"; [ "$before" = 0 ] && ok "a new database is generation 0" || bad "generation" "$before"
 
 n=100000; for _ in $(seq 50); do submit >/dev/null; done                       # accepted after the backup
 seen="$(sql "$TMP/live.db" 'SELECT max(seq) FROM events')"                   # a client has read up to here
@@ -53,5 +55,9 @@ r="$(n=200000; submit)"; new="$(jq .seq <<<"$r")"
 [ "$new" -gt "$seen" ] && ok "new events are numbered after anything issued before ($new > $seen)" || bad "sequence reuse" "$r after $seen"
 page="$(curl -s -m 2 -H "Authorization: Bearer $ADM" "$BASE/v1/sync?region=1&after=$seen&limit=256")"
 [ "$(jq -c '[.events[] | select(.[1] == 1) | .[0]]' <<<"$page")" = "[$new]" ] && ok "a client that had read further receives the new event" || bad "sync after restore" "$page"
+after="$(generation)"; [ -n "$after" ] && [ "$after" != null ] && [ "$after" != 0 ] && ok "the restored database announces a new generation ($after)" || bad "generation after restore" "$after"
+kill $PID; wait $PID 2>/dev/null; PID=
+"$ROOT/tools/restore.sh" "$TMP/backup.db" "$TMP/live.db" >/dev/null 2>&1; start
+again="$(generation)"; [ "$again" != "$after" ] && [ "$again" != 0 ] && ok "restoring the same backup again is another generation" || bad "second restore" "$again after $after"
 grep -qE 'fatal|runtime error' "$TMP/server.log" && bad "server log" "$(grep -m3 -E 'fatal|runtime' "$TMP/server.log")" || ok "clean server log"
 echo "passed=$pass failed=$fail"; [ $fail = 0 ]

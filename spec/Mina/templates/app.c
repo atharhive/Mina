@@ -17,6 +17,8 @@
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
 static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head, *Q_incident;
 static i64 started_at;
+/* Changes only when a restore replaces the database, which needs the server stopped. */
+static i64 generation;
 
 /* ---- native read plans: Mina.Plan, Mina.Sync --------------------------------------------- */
 
@@ -65,6 +67,7 @@ static void app_init(void) {
   Q_sync_all = db_prepare(@{SQL_SYNC_ALL});
   Q_head = db_prepare(@{SQL_HEAD});
   Q_incident = db_prepare(@{SQL_INCIDENT});
+  generation = db_user_version();
   native_init();
   started_at = time(0);
 }

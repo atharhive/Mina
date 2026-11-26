@@ -236,13 +236,13 @@ sync "$RESP" region=1
 [ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 1 0 64)" ] && ok "responders receive every event of their region" || bad "responder stream" "$BODY"
 sync "$ADM" region=1; [ "$(jq -c .events <<<"$BODY")" = "$(want_events 1 1 0 64)" ] && ok "admins too" || bad "admin stream"
 sync "$RESP" region=3; expect "responders stay in their regions" 403 '{"error":"region not authorized"}'
-sync "$CIT" "region=1&after=$head";        expect "up to date" 200 '{"head":'"$head"',"events":[],"next":'"$head"',"more":false}'
-sync "$CIT" "region=999&after=3";          expect "quiet region keeps its cursor" 200 '{"head":'"$head"',"events":[],"next":3,"more":false}'
+sync "$CIT" "region=1&after=$head";        expect "up to date" 200 '{"head":'"$head"',"generation":0,"events":[],"next":'"$head"',"more":false}'
+sync "$CIT" "region=999&after=3";          expect "quiet region keeps its cursor" 200 '{"head":'"$head"',"generation":0,"events":[],"next":3,"more":false}'
 sync "$CIT" "region=1&after=$((head+1))";  expect "cursor beyond the head" 409 '{"error":"resync"}'
 
 n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":777,"body":"say \"go\"\n→ north \\ ridge","at":7}'; s="$(jq .seq <<<"$BODY")"
 t="$(sql "SELECT ts FROM events WHERE seq=$s")"
-sync "$CIT" region=777; expect "exact response bytes" 200 '{"head":'"$s"',"events":[['"$s"',6,'"$t"',null,null,null,"say \"go\"\n→ north \\ ridge",null,null,7]],"next":'"$s"',"more":false}'
+sync "$CIT" region=777; expect "exact response bytes" 200 '{"head":'"$s"',"generation":0,"events":[['"$s"',6,'"$t"',null,null,null,"say \"go\"\n→ north \\ ridge",null,null,7]],"next":'"$s"',"more":false}'
 
 for i in $(seq 70); do n=$((n+1)); ev "$ADM" '{"eid":"'"$(eid $n)"'","kind":6,"region":600,"body":"alert '"$i"'"}'; done
 sync "$CIT" region=600

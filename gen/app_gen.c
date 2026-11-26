@@ -50,6 +50,8 @@ static int schema_check(void) {
 static sqlite3_stmt *Q_health, *Q_by_eid, *Q_event_insert, *Q_incident_insert, *Q_incident_state, *Q_incident_update;
 static sqlite3_stmt *Q_sync_public, *Q_sync_all, *Q_head, *Q_incident;
 static i64 started_at;
+/* Changes only when a restore replaces the database, which needs the server stopped. */
+static i64 generation;
 
 /* ---- native read plans: Mina.Plan, Mina.Sync --------------------------------------------- */
 
@@ -113,6 +115,7 @@ static void app_init(void) {
   Q_sync_all = db_prepare("SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 0 AND seq > \?2 UNION ALL SELECT seq, kind, ts, incident, category, status, body, lat, lon, at FROM events WHERE region = \?1 AND vis = 1 AND seq > \?2 ORDER BY 1 LIMIT \?3");
   Q_head = db_prepare("SELECT coalesce(max(seq), 0) FROM events");
   Q_incident = db_prepare("SELECT i.region, i.category, i.status, i.updated_seq, i.owner, e.ts, e.at, e.body, e.lat, e.lon FROM incidents i JOIN events e ON e.seq = i.id WHERE i.id = \?1");
+  generation = db_user_version();
   native_init();
   started_at = time(0);
 }
@@ -561,9 +564,11 @@ static int exec_sync_native(job_t *j) {
   int quiet = q->after >= heads[q->region][0] && (!q->restricted || q->after >= heads[q->region][1]);
   out_t o0, *o = &o0;
   out_begin(o);
-  out_need(o, 39);
+  out_need(o, 73);
   out_lit(o, "{\"head\":", 8);
   out_i64(o, head);
+  out_lit(o, ",\"generation\":", 14);
+  out_i64(o, generation);
   out_lit(o, ",\"events\":[", 11);
   i64 next = q->after;
   int more = 0;
@@ -604,9 +609,11 @@ static void exec_sync(job_t *j) {
   sqlite3_bind_int64(s, 3, q->limit + 1);
   out_t o0, *o = &o0;
   out_begin(o);
-  out_need(o, 39);
+  out_need(o, 73);
   out_lit(o, "{\"head\":", 8);
   out_i64(o, head);
+  out_lit(o, ",\"generation\":", 14);
+  out_i64(o, generation);
   out_lit(o, ",\"events\":[", 11);
   i64 next = q->after, count = 0;
   int more = 0;
