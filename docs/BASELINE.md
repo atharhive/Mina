@@ -154,8 +154,8 @@ Reading these numbers:
 - At 100,000 users the run with SQL forced used 31.7 % CPU and the native run 28.4 %, one run
   each. Repeat runs of one build on this machine have differed by up to 14 % (see below), so
   these two runs do **not** establish that native reads change the server's total CPU use.
-  Settling it needs alternating repeated runs. Most server time is in the kernel (about two
-  thirds).
+  Alternating repeated runs followed, under "Native reads against SQL, whole server" below. Most
+  server time is in the kernel (about two thirds).
 - Loopback charges part of the receive path to the generator, this core is faster than a small
   cloud vCPU, and an idle server process left running on this machine used about 2 % of the
   sibling hardware thread during all of these runs.
@@ -395,4 +395,28 @@ an estimate for real use. Control: with a disk that ignores flushes, `full` mode
 few cuts (acknowledged events gone, database malformed, server unable to start).
 
 This simulates a disk's cache, not real hardware: no real power supply, drive or firmware.
+
+## Native reads against SQL, whole server
+
+Five pairs of runs per profile in one session, the order swapped from pair to pair, server at
+`4c499c7`, 2026-11-27, same machine and arrangement as above, on mains power with the
+`powersave` governor. All 20 runs: no errors, database intact, identical throughput within a
+profile. Raw rows: `bench/reports/2026-11-27-native-vs-sql.jsonl`.
+
+- **mix**: `bench/mina.sh 100000 40 90 25`, about 10,009 requests/s.
+- **backlog**: `CURSOR_BACK=100000 bench/mina.sh 20000 20 60 10`, about 3,364 requests/s, every
+  device starting 100,000 events behind.
+
+| Profile | Measure | Native: mean (range) | SQL: mean (range) | Native lower in | Verdict |
+|---|---|---|---|---|---|
+| backlog | server CPU | **20.6 %** (20.4 to 20.8) | 22.8 % (22.6 to 22.9) | 5 of 5 | native about 9 % less |
+| backlog | median latency | 0.82 ms | 0.86 ms | 5 of 5 | native about 5 % lower |
+| backlog | 99th percentile | 1.70 ms (1.66 to 1.74) | 1.84 ms (1.82 to 1.86) | 5 of 5 | native about 8 % lower |
+| mix | server CPU | 29.7 % (20.5 to 33.5) | 29.9 % (22.0 to 33.3) | 4 of 5 | **no difference shown** (pairs: -1.5 to +2.1 points) |
+| mix | median latency | 0.77 ms | 0.77 ms | 4 of 5 | no difference shown |
+| mix | 99th percentile | 1.55 ms (1.31 to 2.21) | 1.63 ms (1.34 to 2.30) | 5 of 5 | slightly lower, by 0.02 to 0.13 ms |
+
+The 99.9th percentile showed no consistent order in either profile. So the in-process gains
+(1.6 to 96 times) are a small part of the server's work: most of its time is spent in the kernel
+on the network.
 

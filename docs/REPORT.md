@@ -25,7 +25,7 @@ services**.
 | Servers, compute, memory | 1 server, 1 vCPU, 2 GB | one pinned laptop core (faster than a small cloud vCPU), 2 GB cgroup, peak 525 MB at 100,000 users in the heaviest runs of the current settings |
 | Lean specification, generated C | yes | data, rules, schema, routes, serializers and tables are generated; the request handlers are a hand-written C template that the generator fills, and the transport is hand-written C |
 | Direct B-tree execution | yes | synchronisation; other reads and all writes use SQL |
-| Query acceleration | 2 to 5 times | 1.6 to 1.8 on full pages, 4.1 on small answers, 47 to 83 on empty ones, measured inside the process; no established difference in whole-server CPU |
+| Query acceleration | 2 to 5 times | 1.6 to 1.8 on full pages, 4.1 on small answers, 47 to 83 on empty ones, measured inside the process. Whole server: about 9 % less CPU when devices catch up on a backlog, no difference shown in the normal mix |
 | Duplicate stored events | none | none in any test |
 | Lost acknowledged events | none | none under forced crashes, or under simulated power cuts with `MINA_SYNC=full`; **the default setting loses recent ones in a power cut**; see restore below |
 | Citizen JavaScript | under 100 KB compressed | 104 KB gzip (90 KB brotli): over |
@@ -120,6 +120,11 @@ In-process cost of a synchronisation at `8290d1f` (`bench/micro.sh`), native aga
 microseconds: 64 events 14.5 against 24.5; responder merge 15.2 against 28.0; 256 events 57
 against 92; a few new events 0.34 against 1.38; up to date 0.02 against 1.09.
 
+Whole server, native against SQL, five alternating pairs per profile (`4c499c7`, 2026-11-27):
+when 20,000 devices caught up on a backlog, native reads used 20.6 % CPU against 22.8 % and had a
+99th percentile of 1.70 against 1.84 ms, in every pair. In the normal mix at 100,000 users no
+difference in CPU showed (29.7 against 29.9 %, pairs ranging both ways).
+
 Changes that mattered, with before and after: [OPTIMIZATION_LOG.md](OPTIMIZATION_LOG.md). The
 largest was fixing an insert that scanned an index, which had saturated the server at 100,000
 users. `MINA_SYNC=full` (survives power loss) raised median latency from 0.8 to 6.8 ms.
@@ -161,7 +166,6 @@ about 27 s.
 | Native plans for incident reads and duplicate lookup | not built; no measured need yet |
 | Map background, translations | blocked on choices |
 | Server-side request latency, queue and buffer occupancy over time | the Observatory shows batch times and exhaustion counts instead |
-| Repeated measurements to settle the effect of native reads on server CPU | to do |
 
 ## Defects found and fixed along the way
 
