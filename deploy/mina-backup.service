@@ -1,0 +1,10 @@
+[Unit]
+Description=MINA database backup to S3
+
+[Service]
+Type=oneshot
+# the snapshot is read through the live database's shared memory, so it runs as the same user
+User=mina
+EnvironmentFile=/etc/mina/backup.env
+Environment=HOME=/var/lib/mina
+ExecStart=/opt/mina/tools/backup-to-s3.sh

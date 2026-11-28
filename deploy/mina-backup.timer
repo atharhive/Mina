@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly MINA database backup
+
+[Timer]
+# 02:00 in India
+OnCalendar=*-*-* 20:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
