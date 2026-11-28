@@ -64,6 +64,7 @@ separately from the live figures.
 
 | | Citizen | Command |
 |---|---|---|
+| Languages | English, Hindi, Marathi: the phone's language at first, then the reader's choice, kept on the phone | English |
 | Identity | a session the server issues when first needed | a token from `mina-admin`; signing out erases the device's data |
 | Offline | opens and records reports without a network (service worker) | opens without a network and shows what it holds (its own service worker); actions wait |
 | Long lists | 50 reports, 20 alerts | 200 incidents at a time, in priority order; positions clustered to at most one marker per grid cell, without a map background |

@@ -28,7 +28,7 @@ services**.
 | Query acceleration | 2 to 5 times | 1.6 to 1.8 on full pages, 4.1 on small answers, 47 to 83 on empty ones, measured inside the process. Whole server: about 9 % less CPU when devices catch up on a backlog, no difference shown in the normal mix |
 | Duplicate stored events | none | none in any test |
 | Lost acknowledged events | none | none under forced crashes, or under simulated power cuts with `MINA_SYNC=full`; **the default setting loses recent ones in a power cut**; see restore below |
-| Citizen JavaScript | under 100 KB compressed | 104 KB gzip (90 KB brotli): over |
+| Citizen JavaScript | under 100 KB compressed | 104 KiB gzip (90 KiB brotli) with three languages, 2026-11-28: over |
 | Offline reporting | yes | yes, on `localhost` or HTTPS |
 | Lighthouse performance | 95+ | 100 for all three applications: first screen, simulated mobile, same machine |
 
