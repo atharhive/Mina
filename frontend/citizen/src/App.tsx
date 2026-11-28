@@ -1,15 +1,10 @@
-import { KIND, LIMITS, SAFETY, displayStatus, keepSynchronised, type DisplayStatus, type Link } from "@mina/shared";
+import { KIND, LIMITS, SAFETY, displayStatus, keepSynchronised, type DisplayStatus } from "@mina/shared";
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useLive } from "./live";
 import { ReportForm } from "./ReportForm";
 import { connection, db, engine } from "./store";
-import { STATUS_TEXT, time, title } from "./text";
+import { LANGUAGE_NAMES, STRINGS, initialLang, keepLang, time, title, type Lang, type Strings } from "./text";
 
-const LINK_TEXT: Record<Link, string> = {
-  online: "Online",
-  offline: "Offline — reports are saved on this phone",
-  unreachable: "Cannot reach the server — reports are saved on this phone",
-};
 const TONE: Record<DisplayStatus, string> = {
   saved: "text-wait", waiting: "text-wait", delivered: "text-ink", acknowledged: "text-safe",
   in_progress: "text-safe", resolved: "text-muted", rejected: "text-alarm",
@@ -19,27 +14,37 @@ export function App() {
   const state = useSyncExternalStore(connection.watch, connection.state);
   const region = useLive(async () => ((await db.meta.get("region"))?.value as number | undefined) ?? 0, []);
   useEffect(() => (region ? keepSynchronised(engine, [region]) : undefined), [region]);
+  const [lang, setLang] = useState(initialLang);
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);
+  const t = STRINGS[lang];
 
   return (
     <div className="mx-auto max-w-xl px-4 pb-10">
       <header className="flex items-baseline justify-between border-b border-ink py-4">
         <h1 className="text-2xl font-bold tracking-tight">MINA</h1>
-        {region ? <button className="text-sm underline" onClick={() => void db.meta.delete("region")}>Area {region} · change</button> : null}
+        <div className="flex items-center gap-3">
+          {region ? <button className="text-sm underline" onClick={() => void db.meta.delete("region")}>{t.area(region)}</button> : null}
+          <select aria-label="Language · भाषा" value={lang} className="min-h-10 border border-line bg-card px-2 text-sm"
+            onChange={(e) => { const chosen = e.target.value as Lang; setLang(chosen); keepLang(chosen); }}>
+            {LANGUAGE_NAMES.map(([code, name]) => <option key={code} value={code} lang={code}>{name}</option>)}
+          </select>
+        </div>
       </header>
       <p role="status" aria-label="Connection" className={`border-b border-line py-2 text-sm font-semibold ${state === "online" ? "text-safe" : "text-wait"}`}>
-        {LINK_TEXT[state]}
+        {t.link[state]}
       </p>
       <main className="space-y-6 pt-4">
-        {region === undefined ? null : region === 0 ? <ChooseArea /> : <Home region={region} online={state === "online"} />}
+        {region === undefined ? null : region === 0 ? <ChooseArea t={t} /> : <Home region={region} online={state === "online"} t={t} />}
       </main>
       <footer className="mt-10 border-t border-line pt-4 text-sm text-muted">
-        MINA is a research system and not a replacement for official emergency services. If you can reach them, call them.
+        <p>{t.disclaimer}</p>
+        <p className="mt-2">{t.demo}</p>
       </footer>
     </div>
   );
 }
 
-function ChooseArea() {
+function ChooseArea({ t }: { t: Strings }) {
   const [value, setValue] = useState("");
   const number = Number(value);
   const valid = Number.isInteger(number) && number >= 1 && number <= LIMITS.maxRegion;
@@ -50,16 +55,16 @@ function ChooseArea() {
   return (
     <form onSubmit={save} className="space-y-3">
       <label className="block">
-        <span className="font-semibold">Your area number</span>
+        <span className="font-semibold">{t.areaLabel}</span>
         <input inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} className="mt-1 w-full border border-ink bg-card p-3 text-lg" />
-        <span className="text-sm text-muted">Given by your local responders, from 1 to {LIMITS.maxRegion}.</span>
+        <span className="text-sm text-muted">{t.areaHint(LIMITS.maxRegion)}</span>
       </label>
-      <button type="submit" disabled={!valid} className="min-h-12 w-full bg-ink font-semibold text-paper disabled:opacity-40">Continue</button>
+      <button type="submit" disabled={!valid} className="min-h-12 w-full bg-ink font-semibold text-paper disabled:opacity-40">{t.proceed}</button>
     </form>
   );
 }
 
-function Home({ region, online }: { region: number; online: boolean }) {
+function Home({ region, online, t }: { region: number; online: boolean; t: Strings }) {
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState("");
   const mine = useLive(() => db.outbox.orderBy("id").reverse().limit(50).toArray(), []) ?? [];
@@ -75,40 +80,40 @@ function Home({ region, online }: { region: number; online: boolean }) {
     <>
       {asking ? (
         <>
-          <ReportForm region={region} onSaved={(n) => { setAsking(false); setNote(n); }} />
-          <button className="text-sm underline" onClick={() => setAsking(false)}>Cancel</button>
+          <ReportForm region={region} t={t} onSaved={(n) => { setAsking(false); setNote(n); }} />
+          <button className="text-sm underline" onClick={() => setAsking(false)}>{t.cancel}</button>
         </>
       ) : (
-        <button onClick={() => { setAsking(true); setNote(""); }} className="min-h-24 w-full bg-alarm text-2xl font-bold text-white">Request help</button>
+        <button onClick={() => { setAsking(true); setNote(""); }} className="min-h-24 w-full bg-alarm text-2xl font-bold text-white">{t.requestHelp}</button>
       )}
       {note && <p role="status" className="text-sm text-wait">{note}</p>}
-      <section aria-label="My safety" className="grid grid-cols-2 gap-2">
-        <button onClick={() => void safety(SAFETY.safe)} className="min-h-14 border border-safe font-semibold text-safe">I am safe</button>
-        <button onClick={() => void safety(SAFETY.needs_help)} className="min-h-14 border border-alarm font-semibold text-alarm">I need help</button>
-        <p className="col-span-2 text-sm text-muted">Your safety status is shown only to responders of your area.</p>
+      <section aria-label={t.mySafety} className="grid grid-cols-2 gap-2">
+        <button onClick={() => void safety(SAFETY.safe)} className="min-h-14 border border-safe font-semibold text-safe">{t.safe}</button>
+        <button onClick={() => void safety(SAFETY.needs_help)} className="min-h-14 border border-alarm font-semibold text-alarm">{t.needHelp}</button>
+        <p className="col-span-2 text-sm text-muted">{t.safetyNote}</p>
       </section>
-      <section aria-label="Alerts for your area">
-        <h2 className="border-b border-ink pb-1 font-semibold">Alerts for your area</h2>
-        {alerts.length === 0 ? <p className="py-3 text-muted">No alerts received.</p> : (
+      <section aria-label={t.alerts}>
+        <h2 className="border-b border-ink pb-1 font-semibold">{t.alerts}</h2>
+        {alerts.length === 0 ? <p className="py-3 text-muted">{t.noAlerts}</p> : (
           <ul>{alerts.map((a) => (
             <li key={a.seq} className="border-b border-line py-3">
               <p className="break-words font-medium">{a.body}</p>
-              <p className="text-sm text-muted">{time(a.ts * 1000)}</p>
+              <p className="text-sm text-muted">{time(a.ts * 1000, t)}</p>
             </li>
           ))}</ul>
         )}
       </section>
-      <section aria-label="My reports">
-        <h2 className="border-b border-ink pb-1 font-semibold">My reports</h2>
-        {mine.length === 0 ? <p className="py-3 text-muted">Nothing reported from this phone.</p> : (
+      <section aria-label={t.myReports}>
+        <h2 className="border-b border-ink pb-1 font-semibold">{t.myReports}</h2>
+        {mine.length === 0 ? <p className="py-3 text-muted">{t.noReports}</p> : (
           <ul>{mine.map((item) => {
             const status = displayStatus(item, events, online);
             return (
               <li key={item.id} className="border-b border-line py-3">
-                <p className="font-semibold">{title(item)}</p>
+                <p className="font-semibold">{title(item, t)}</p>
                 {item.payload.body && <p className="break-words">{item.payload.body}</p>}
-                <p className={`font-semibold ${TONE[status]}`}>{STATUS_TEXT[status]}{status === "rejected" && item.error ? `: ${item.error}` : ""}</p>
-                <p className="text-sm text-muted">{time(item.createdAt)}</p>
+                <p className={`font-semibold ${TONE[status]}`}>{t.status[status]}{status === "rejected" && item.error ? `: ${item.error}` : ""}</p>
+                <p className="text-sm text-muted">{time(item.createdAt, t)}</p>
               </li>
             );
           })}</ul>

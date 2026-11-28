@@ -76,6 +76,39 @@ test("a report made offline survives a reload, is delivered once and acknowledge
   expect(errors).toEqual([]);
 });
 
+test("speaks Hindi and Marathi, keeps the choice and works offline in it", async ({ page, context }) => {
+  await page.goto("/");
+  await page.getByRole("combobox", { name: /Language/ }).selectOption("hi");
+  await expect(page.locator("html")).toHaveAttribute("lang", "hi");
+  await page.getByLabel("आपके इलाके का नंबर").fill("8");
+  await page.getByRole("button", { name: "आगे बढ़ें" }).click();
+  await expect(page.getByRole("button", { name: "मदद माँगें" })).toBeVisible();
+  await page.evaluate(() => navigator.serviceWorker.ready);
+
+  await context.setOffline(true);
+  await page.reload();
+  await page.getByRole("button", { name: "मदद माँगें" }).click();
+  await page.getByRole("button", { name: "सहेजें और भेजें" }).click();
+  await expect(page.getByRole("alert")).toHaveText("चुनें कि आपको किस तरह की मदद चाहिए।");
+  await page.getByRole("radio", { name: "पानी" }).check();
+  await page.getByRole("button", { name: "सहेजें और भेजें" }).click();
+  await expect(page.getByRole("region", { name: "मेरी रिपोर्ट" })).toContainText("मदद: पानी");
+  await expect(page.getByRole("region", { name: "मेरी रिपोर्ट" })).toContainText("अभी भेजी नहीं गई");
+
+  await page.getByRole("combobox", { name: /Language/ }).selectOption("mr");
+  await expect(page.locator("html")).toHaveAttribute("lang", "mr");
+  await expect(page.getByRole("region", { name: "माझे अहवाल" })).toContainText("अजून पाठवलेले नाही");
+  await expect(page.getByRole("button", { name: "मदत मागा" })).toBeVisible();
+});
+
+test.describe("on a phone set to Marathi", () => {
+  test.use({ locale: "mr-IN" });
+  test("starts in Marathi", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByLabel("तुमच्या विभागाचा क्रमांक")).toBeVisible();
+  });
+});
+
 test("leaves the other applications of the server alone", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => navigator.serviceWorker.ready);
