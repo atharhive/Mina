@@ -14,7 +14,9 @@
  * "<token key>:<start cursor>:<regions>[:<retry %>:<emergency %>]". Users start with their
  * cursor there: the newest event for a normal run, an older one for devices that reconnect with a
  * backlog. The two percentages replace the citizen's 2 % of retries and 1 % of reports. Session
- * creation is not part of the workload: tokens are signed by the generator.
+ * creation is not part of the workload: tokens are signed by the generator. Several generators
+ * against one server each set MINA_UID_BASE to a different multiple of 10000000, so that their
+ * users, and with them their event ids, do not collide.
  *
  * Build: cc ... -Ibench -Iruntime -Igen -DWORKLOAD='"workload_mina.h"' bench/loadgen.c bench/sign.c */
 #include <time.h>
@@ -51,6 +53,8 @@ static void wl_init(const char *arg) {
     exit(2);
   }
   sign_key(key);
+  const char *base = getenv("MINA_UID_BASE");
+  if (base) wl_users = atoll(base);
   wl_nonce = (unsigned long long)time(0);
 }
 static double wl_first_delay_ms(u32 *rng) { return between(rng, 0, 5000); }

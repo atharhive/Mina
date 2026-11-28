@@ -15,8 +15,9 @@
  *                              starting with a comma
  *
  * Latency and throughput are measured over the hold phase only and printed as one JSON line.
- * With source_ips > 0 (loopback targets only) connections are bound to that many addresses
- * from 127.0.0.2 up, so that one destination does not exhaust the ephemeral port range. */
+ * source_ips spreads connections over several source addresses, so that one destination does
+ * not exhaust the ephemeral port range: either a count (loopback targets only: that many
+ * addresses from 127.0.0.2 up) or a comma-separated list of this machine's addresses. */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <errno.h>
@@ -74,6 +75,8 @@ typedef struct {
 
 static struct sockaddr_in dst;
 static int nusers, nthreads, nsrc;
+#define MAXSRC 64
+static struct in_addr src[MAXSRC];
 static double ramp_ms, hold_ms, down_ms;
 static u64 t0;
 
@@ -122,7 +125,7 @@ static void do_connect(thr_t *t, user_t *u) {
   if (nsrc > 0) {
     setsockopt(u->fd, IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT, &one, sizeof one);
     struct sockaddr_in a = {.sin_family = AF_INET};
-    a.sin_addr.s_addr = htonl(0x7f000002u + u->id % (u32)nsrc);
+    a.sin_addr = src[u->id % (u32)nsrc];
     if (bind(u->fd, (struct sockaddr *)&a, sizeof a)) { u->state = U_CONNECTING; fail(t, u, E_CONNECT); return; }
   }
   u->state = U_CONNECTING;
@@ -261,6 +264,26 @@ static void *worker(void *arg) {
   return 0;
 }
 
+/* the source_ips argument into src[]; 0 when it is neither a count nor a list of addresses */
+static int parse_sources(const char *arg) {
+  char *end;
+  long count = strtol(arg, &end, 10);
+  if (end != arg && !*end) {
+    if (count < 0 || count > MAXSRC) return 0;
+    for (nsrc = 0; nsrc < count; nsrc++) src[nsrc].s_addr = htonl(0x7f000002u + (u32)nsrc);
+    return 1;
+  }
+  for (const char *p = arg; ; p++) {
+    char one[INET_ADDRSTRLEN];
+    size_t n = strcspn(p, ",");
+    if (n >= sizeof one || nsrc == MAXSRC) return 0;
+    memcpy(one, p, n); one[n] = 0;
+    if (inet_pton(AF_INET, one, &src[nsrc++]) != 1) return 0;
+    p += n;
+    if (!*p) return 1;
+  }
+}
+
 int main(int argc, char **argv) {
   if (argc < 7) { fprintf(stderr, "usage: loadgen ip port users ramp_s hold_s rampdown_s [threads] [source_ips] [workload_arg]\n"); return 2; }
   dst.sin_family = AF_INET;
@@ -269,7 +292,7 @@ int main(int argc, char **argv) {
   nusers = atoi(argv[3]);
   ramp_ms = atof(argv[4]) * 1000; hold_ms = atof(argv[5]) * 1000; down_ms = atof(argv[6]) * 1000;
   nthreads = argc > 7 ? atoi(argv[7]) : 4;
-  nsrc = argc > 8 ? atoi(argv[8]) : 0;
+  if (argc > 8 && !parse_sources(argv[8])) { fprintf(stderr, "bad source_ips\n"); return 2; }
   wl_init(argc > 9 ? argv[9] : 0);
   if (nusers < 1 || nthreads < 1 || nthreads > 64) { fprintf(stderr, "bad arguments\n"); return 2; }
   struct rlimit rl; getrlimit(RLIMIT_NOFILE, &rl); rl.rlim_cur = rl.rlim_max; setrlimit(RLIMIT_NOFILE, &rl);
